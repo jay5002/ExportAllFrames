@@ -1,0 +1,11 @@
+{
+  "title": "LMS",
+  "description": "This web application offers users a comprehensive view of all frames in a project, streamlining design review and collaboration for teams.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
