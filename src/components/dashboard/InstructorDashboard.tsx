@@ -2,6 +2,8 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 're
 import { backend } from '../../lib/backend'
 import { useNavigate } from 'react-router-dom'
 import { blueTheme } from './theme'
+import CurriculumEditor from './CurriculumEditor'
+import { useSearchParams } from 'react-router-dom'
 
 const t = blueTheme
 
@@ -10,18 +12,25 @@ interface InstructorDashboardProps {
 }
 
 interface Course {
-  id?: string
+  id: string
   description?: string
   name: string
   students: number
   status: 'Published' | 'Draft'
   completion: number
   lessons: number
+  category?: string
+  difficulty?: string
+  duration?: string
+  thumbnail?: string
 }
 
 interface Submission {
   feedback?: string
-  id: number
+  id: string
+  content?: string
+  studentId: string
+  courseId: string
   student: string
   initials: string
   assignment: string
@@ -32,18 +41,15 @@ interface Submission {
 }
 
 interface Student {
+  id: string
+  studentId: string
+  courseId: string
   name: string
   initials: string
   course: string
   progress: number
   lastActive: string
 }
-
-const activity = [
-  { initials: 'AK', title: 'Aarav submitted React Architecture', time: '12 minutes ago', color: '#2563eb', target: 'grading' as const },
-  { initials: 'SM', title: 'Sara completed TypeScript Deep Dive', time: '48 minutes ago', color: '#7c3aed', target: 'students' as const },
-  { initials: 'RL', title: 'Rohan asked a question in Lesson 8', time: '2 hours ago', color: '#059669', target: 'students' as const },
-]
 
 function MiniIcon({ kind, color }: { kind: string; color: string }) {
   if (kind === 'people') {
@@ -66,8 +72,8 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
       }}
     >
       <div role="dialog" aria-modal="true" aria-label={title} style={{
-        width: '100%', maxWidth: 440, background: '#fff', borderRadius: 16,
-        border: `1px solid ${t.cardBorder}`, boxShadow: '0 24px 64px rgba(30,58,138,0.22)', overflow: 'hidden',
+        width: '100%', maxWidth: 540, maxHeight: '90dvh', background: '#fff', borderRadius: 16,
+        border: `1px solid ${t.cardBorder}`, boxShadow: '0 24px 64px rgba(30,58,138,0.22)', overflow: 'auto',
       }}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.cardBorder}`, display: 'flex', alignItems: 'center' }}>
           <div style={{ flex: 1, fontSize: 16, fontWeight: 800, color: t.sectionText }}>{title}</div>
@@ -87,8 +93,26 @@ const fieldStyle = {
   padding: '9px 11px', fontSize: 12, color: t.sectionText, outline: 'none',
 }
 
+function DetailFields({ course }: { course?: Course }) {
+  const label = { fontSize: 11, fontWeight: 700, color: t.sectionText }
+  return <>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <label style={label}>Category<input name="category" maxLength={60} defaultValue={course?.category} placeholder="e.g. Programming" style={{ ...fieldStyle, marginTop: 6 }} /></label>
+      <label style={label}>Difficulty<select name="difficulty" defaultValue={course?.difficulty ?? ''} style={{ ...fieldStyle, marginTop: 6 }}><option value="">Not set</option><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label>
+      <label style={label}>Estimated duration<input name="duration" maxLength={40} defaultValue={course?.duration} placeholder="e.g. 6 hours" style={{ ...fieldStyle, marginTop: 6 }} /></label>
+      <label style={label}>Thumbnail URL<input name="thumbnail" type="url" defaultValue={course?.thumbnail} placeholder="https://…" style={{ ...fieldStyle, marginTop: 6 }} /></label>
+    </div>
+  </>
+}
+
+const detailsFrom = (data: FormData) => ({
+  category: String(data.get('category') ?? ''), difficulty: String(data.get('difficulty') ?? ''),
+  duration: String(data.get('duration') ?? ''), thumbnail: String(data.get('thumbnail') ?? ''),
+})
+
 export default function InstructorDashboard({ view = 'overview' }: InstructorDashboardProps) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [courses, setCourses] = useState<Course[]>([])
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [students, setStudents] = useState<Student[]>([])
@@ -97,11 +121,14 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
   const [modal, setModal] = useState<'course' | 'message' | 'grade' | 'student' | 'course-detail' | null>(null)
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null)
   const [selectedName, setSelectedName] = useState('')
+  const [selectedId, setSelectedId] = useState('')
   const [grade, setGrade] = useState('85')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [connected, setConnected] = useState(false)
+  useEffect(() => { setQuery(searchParams.get('q') || '') }, [searchParams])
+  const activity = submissions.slice(-5).reverse().map(item => ({ initials: item.initials, title: `${item.student} submitted ${item.assignment}`, time: new Date(item.submitted).toLocaleDateString(), color: t.logoColor, target: 'grading' as const }))
 
   const loadWorkspace = async () => {
     setLoading(true)
@@ -137,10 +164,10 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
   }
   const pendingCount = submissions.filter((submission) => submission.status === 'Pending').length
   const metrics = [
-    { label: 'Demo learners', value: String(students.length), change: 'Sample learner directory', tone: '#2563eb', icon: 'people', target: 'students' as const },
+    { label: 'Course enrollments', value: String(students.length), change: 'Your enrolled learners', tone: '#2563eb', icon: 'people', target: 'students' as const },
     { label: 'Published courses', value: String(courses.filter((course) => course.status === 'Published').length), change: 'Currently published', tone: '#7c3aed', icon: 'course', target: 'courses' as const },
     { label: 'Submissions to grade', value: String(pendingCount), change: 'Awaiting feedback', tone: '#d97706', icon: 'course', target: 'grading' as const },
-    { label: 'Average completion', value: `${students.length ? Math.round(students.reduce((total, student) => total + student.progress, 0) / students.length) : 0}%`, change: 'Sample learner progress', tone: '#059669', icon: 'chart', target: 'overview' as const },
+    { label: 'Average completion', value: `${students.length ? Math.round(students.reduce((total, student) => total + student.progress, 0) / students.length) : 0}%`, change: 'Live learner progress', tone: '#059669', icon: 'chart', target: 'overview' as const },
   ]
 
   const filteredCourses = useMemo(
@@ -161,6 +188,13 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
     window.setTimeout(() => setNotice(''), 2600)
   }
 
+  const loadSamples = () => void save(async () => {
+    const result = await backend<{ courses: { created: boolean }[] }>('/seed/sample-courses', 'POST')
+    await loadWorkspace()
+    const added = result.courses.filter(item => item.created).length
+    showNotice(added ? `${added} sample courses were added and published` : 'Sample courses already exist')
+  })
+
   const createCourse = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
@@ -168,7 +202,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
     const lessons = Number(data.get('lessons')) || 1
     if (!name) return
     void save(async () => {
-      const course = await backend<Course>('/courses', 'POST', { name, lessons, description: String(data.get('description') ?? '') })
+      const course = await backend<Course>('/courses', 'POST', { name, lessons, description: String(data.get('description') ?? ''), ...detailsFrom(data) })
       setCourses(current => [...current, course])
       setModal(null)
       navigate('/instructor/courses')
@@ -216,11 +250,17 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
           <h1 style={{ fontSize: 24, fontWeight: 800, color: t.sectionText, margin: 0 }}>{viewNames[view]}</h1>
           <p style={{ fontSize: 13, color: t.cardMuted, margin: '5px 0 0' }}>Teach, support, and celebrate every learner.</p>
         </div>
-        <button onClick={() => setModal('course')} style={{
-          border: 'none', borderRadius: 10, background: t.logoColor, color: '#fff',
-          padding: '10px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-          boxShadow: '0 5px 14px rgba(37,99,235,0.22)',
-        }}>+ Create course</button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {connected && !courses.some(course => course.id.startsWith('sample-')) && <button onClick={loadSamples} style={{
+            border: `1px solid ${t.cardBorder}`, borderRadius: 10, background: '#fff', color: t.logoColor,
+            padding: '10px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+          }}>Load sample courses</button>}
+          <button onClick={() => setModal('course')} style={{
+            border: 'none', borderRadius: 10, background: t.logoColor, color: '#fff',
+            padding: '10px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+            boxShadow: '0 5px 14px rgba(37,99,235,0.22)',
+          }}>+ Create course</button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 18 }}>
@@ -257,7 +297,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
           </div>
 
           {(view === 'overview' || view === 'courses') && filteredCourses.map((course) => (
-            <button key={course.name} onClick={() => { setSelectedName(course.name); setModal('course-detail') }} style={{
+            <button key={course.id} onClick={() => { setSelectedName(course.name); setSelectedId(course.id); setModal('course-detail') }} style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px',
               border: 'none', borderBottom: `1px solid ${t.chartGrid}`, background: '#fff', cursor: 'pointer', textAlign: 'left',
             }}>
@@ -278,7 +318,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
           ))}
 
           {view === 'students' && filteredStudents.map((student) => (
-            <button key={student.name} onClick={() => { setSelectedName(student.name); setModal('student') }} style={{
+            <button key={student.id} onClick={() => { setSelectedName(student.name); setSelectedId(student.id); setModal('student') }} style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px',
               border: 'none', borderBottom: `1px solid ${t.chartGrid}`, background: '#fff', cursor: 'pointer', textAlign: 'left',
             }}>
@@ -336,6 +376,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
 
           <div style={{ background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderRadius: 14, padding: '17px 18px' }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: t.sectionText, marginBottom: 14 }}>Recent activity</div>
+            {activity.length === 0 && <p className="text-xs text-slate-400">Learner submissions will appear here.</p>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {activity.map((item) => (
                 <button key={item.title} onClick={() => navigate(`/instructor/${item.target}`)} style={{
@@ -360,6 +401,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
             <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Course title<input name="name" required autoFocus placeholder="e.g. Practical React Performance" style={{ ...fieldStyle, marginTop: 6 }} /></label>
             <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Number of lessons<input name="lessons" type="number" min="1" defaultValue="8" style={{ ...fieldStyle, marginTop: 6 }} /></label>
             <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Description<textarea name="description" rows={3} placeholder="What will learners achieve?" style={{ ...fieldStyle, marginTop: 6, resize: 'vertical' }} /></label>
+            <DetailFields />
             <button type="submit" style={{ border: 'none', borderRadius: 9, padding: 10, background: t.logoColor, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Create draft</button>
           </form>
         </Modal>
@@ -376,7 +418,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
               showNotice('Announcement saved to the student inbox')
             })
           }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Audience<select name="audience" defaultValue="all" style={{ ...fieldStyle, marginTop: 6 }}><option value="all">All active students</option>{courses.filter((course) => course.status === 'Published').map((course) => <option key={course.name}>{course.name}</option>)}</select></label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Audience<select name="audience" defaultValue="all" style={{ ...fieldStyle, marginTop: 6 }}><option value="all">All active students</option>{courses.filter((course) => course.status === 'Published').map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></label>
             <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Message<textarea name="body" required maxLength={4000} autoFocus rows={5} placeholder="Write an announcement..." style={{ ...fieldStyle, marginTop: 6, resize: 'vertical' }} /></label>
             <button type="submit" style={{ border: 'none', borderRadius: 9, padding: 10, background: t.logoColor, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Send message</button>
           </form>
@@ -386,7 +428,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
       {modal === 'grade' && selectedSubmission && (
         <Modal title={`Grade ${selectedSubmission.assignment}`} onClose={() => setModal(null)}>
           <form onSubmit={submitGrade} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ padding: 12, borderRadius: 10, background: t.searchBg, fontSize: 11, color: t.sidebarText }}><strong style={{ color: t.sectionText }}>{selectedSubmission.student}</strong><br />{selectedSubmission.course}</div>
+            <div style={{ padding: 12, borderRadius: 10, background: t.searchBg, fontSize: 11, color: t.sidebarText }}><strong style={{ color: t.sectionText }}>{selectedSubmission.student}</strong><br />{selectedSubmission.course}<p className="mt-3 whitespace-pre-wrap">{selectedSubmission.content}</p></div>
             <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Score out of 100<input value={grade} onChange={(event) => setGrade(event.target.value)} type="number" min="0" max="100" required autoFocus style={{ ...fieldStyle, marginTop: 6 }} /></label>
             <label style={{ fontSize: 11, fontWeight: 700, color: t.sectionText }}>Feedback<textarea name="feedback" defaultValue={selectedSubmission.feedback ?? ''} maxLength={4000} rows={4} placeholder="Add constructive feedback..." style={{ ...fieldStyle, marginTop: 6, resize: 'vertical' }} /></label>
             <button type="submit" style={{ border: 'none', borderRadius: 9, padding: 10, background: t.logoColor, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Save grade</button>
@@ -398,23 +440,47 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
         <Modal title={selectedName} onClose={() => setModal(null)}>
           <div style={{ fontSize: 12, color: t.sidebarText, lineHeight: 1.6 }}>
             {modal === 'student' ? (() => {
-              const student = students.find(item => item.name === selectedName)
+              const student = students.find(item => item.id === selectedId)
               return student ? `${student.course} · ${student.progress}% complete · Last active: ${student.lastActive}` : 'Learner not found'
             })() : (() => {
-              const course = courses.find(item => item.name === selectedName)
+              const course = courses.find(item => item.id === selectedId)
               return course ? `${course.lessons} lessons · ${course.students} enrolled · ${course.status}. ${course.description ?? ''}` : 'Course not found'
             })()}
           </div>
-          {modal === 'student' && submissions.filter(item => item.student === selectedName).map(item => <p key={item.id} className="mt-3 text-sm">{item.assignment}: {item.status === 'Graded' ? `${item.score}/100 — ${item.feedback ?? 'No feedback yet'}` : 'Awaiting review'}</p>)}
+          {modal === 'student' && submissions.filter(item => `${item.studentId}:${item.courseId}` === selectedId).map(item => <p key={item.id} className="mt-3 text-sm">{item.assignment}: {item.status === 'Graded' ? `${item.score}/100 — ${item.feedback ?? 'No feedback yet'}` : 'Awaiting review'}</p>)}
+          {modal === 'course-detail' && (() => {
+            const course = courses.find(item => item.id === selectedId)
+            if (!course) return null
+            return <form key={`${course.id}:${course.name}:${course.category}:${course.difficulty}:${course.duration}:${course.thumbnail}`} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }} onSubmit={(event) => {
+              event.preventDefault()
+              const data = new FormData(event.currentTarget)
+              void save(async () => {
+                const updated = await backend<Course>(`/courses/${course.id}`, 'PUT', { name: String(data.get('name') ?? ''), description: String(data.get('description') ?? ''), ...detailsFrom(data) })
+                setCourses(current => current.map(item => item.id === updated.id ? updated : item))
+                setSelectedName(updated.name)
+                showNotice('Course details saved')
+              })
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: t.sectionText }}>Course details</div>
+              <input name="name" required maxLength={160} defaultValue={course.name} aria-label="Course title" style={fieldStyle} />
+              <textarea name="description" rows={3} maxLength={4000} defaultValue={course.description} aria-label="Course description" style={{ ...fieldStyle, resize: 'vertical' }} />
+              <DetailFields course={course} />
+              <button type="submit" style={{ border: `1px solid ${t.cardBorder}`, borderRadius: 9, padding: 8, background: '#fff', color: t.logoColor, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save course details</button>
+            </form>
+          })()}
+          {modal === 'course-detail' && (() => {
+            const course = courses.find(item => item.id === selectedId)
+            return course?.id ? <CurriculumEditor key={course.id} courseId={course.id} count={course.lessons} /> : null
+          })()}
           {modal === 'course-detail' && <button className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white" onClick={() => {
-            const course = courses.find(item => item.name === selectedName)
+            const course = courses.find(item => item.id === selectedId)
             if (!course?.id) return
             void save(async () => {
               const updated = await backend<Course>(`/courses/${course.id}`, 'PUT', { status: course.status === 'Draft' ? 'Published' : 'Draft' })
               setCourses(current => current.map(item => item.id === updated.id ? updated : item))
               showNotice(`Course ${updated.status.toLowerCase()}`)
             })
-          }}>{courses.find(item => item.name === selectedName)?.status === 'Draft' ? 'Publish course' : 'Unpublish course'}</button>}
+          }}>{courses.find(item => item.id === selectedId)?.status === 'Draft' ? 'Publish course' : 'Unpublish course'}</button>}
           <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
             <button onClick={() => { setModal(null); navigate(modal === 'student' ? '/instructor/grading' : '/instructor/courses') }} style={{ flex: 1, border: 'none', borderRadius: 9, padding: 9, background: t.logoColor, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
               {modal === 'student' ? 'View submissions' : 'Manage course'}

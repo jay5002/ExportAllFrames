@@ -7,9 +7,14 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "backend:check": "node scripts/lms-deployment.mjs check",
+    "backend:verify-live": "node scripts/lms-deployment.mjs verify",
+    "backend:deploy": "node scripts/lms-deployment.mjs deploy",
+    "backend:deployment-test": "node --test scripts/lms-deployment.test.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.18.3",

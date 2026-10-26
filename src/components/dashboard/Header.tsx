@@ -1,19 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { blueTheme } from './theme'
 import { SearchIcon, BellIcon } from './icons'
+import { useNavigate } from 'react-router-dom'
+import { backend } from '../../lib/backend'
+import type { Course } from '../../lib/types'
 
 const t = blueTheme
-
-const searchSuggestions = [
-  'Advanced React Patterns',
-  'Python for Data Science',
-  'Custom Hooks',
-  'Data Visualization',
-  'TypeScript Generics',
-  'Machine Learning',
-  'Figma Auto-Layout',
-  'Next.js API Routes',
-]
 
 interface HeaderProps {
   userName?: string
@@ -21,6 +13,8 @@ interface HeaderProps {
   onNotificationClick?: () => void
   activeRole?: AccountRole
   onRoleChange?: (role: AccountRole) => void
+  canTeach?: boolean
+  onSignOut?: () => void
 }
 
 export type AccountRole = 'student' | 'instructor'
@@ -31,11 +25,20 @@ export default function Header({
   onNotificationClick,
   activeRole = 'student',
   onRoleChange,
+  canTeach = false,
+  onSignOut,
 }: HeaderProps) {
+  const navigate = useNavigate()
+  const [searchCourses, setSearchCourses] = useState<Course[]>([])
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const accountRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    let active = true
+    void backend<{ courses: Course[] }>(activeRole === 'instructor' ? '/workspace' : '/workspace?view=learning').then(data => { if (active) setSearchCourses(data.courses) }).catch(() => {})
+    return () => { active = false }
+  }, [activeRole])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -49,12 +52,12 @@ export default function Header({
 
   const accounts = [
     { id: 'student' as const, name: userName, role: 'Student', initial: userName[0].toUpperCase() },
-    { id: 'instructor' as const, name: 'Instructor View', role: 'Instructor', initial: 'I' },
+    ...(canTeach ? [{ id: 'instructor' as const, name: userName, role: 'Instructor', initial: userName[0].toUpperCase() }] : []),
   ]
   const activeAccount = accounts.find((account) => account.id === activeRole) ?? accounts[0]
 
   const suggestions = query.length > 0
-    ? searchSuggestions.filter((s) => s.toLowerCase().includes(query.toLowerCase()))
+    ? searchCourses.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
     : []
 
   const showDropdown = focused && suggestions.length > 0
@@ -120,8 +123,8 @@ export default function Header({
           }}>
             {suggestions.map((s) => (
               <div
-                key={s}
-                onMouseDown={() => { setQuery(s); setFocused(false) }}
+              key={s.id}
+                onMouseDown={() => { navigate(`${activeRole === 'instructor' ? '/instructor/courses' : '/courses'}?q=${encodeURIComponent(s.name)}`); setQuery(''); setFocused(false) }}
                 style={{
                   padding: '10px 14px', fontSize: 13, color: t.sectionText,
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
@@ -131,7 +134,7 @@ export default function Header({
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <SearchIcon color={t.cardMuted} size={12} />
-                {s}
+                {s.name}
               </div>
             ))}
           </div>
@@ -212,7 +215,7 @@ export default function Header({
           }}>
             {/* Header */}
             <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.cardBorder}`, background: '#fafcff' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.cardMuted, letterSpacing: '0.06em' }}>SWITCH ACCOUNT</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.cardMuted, letterSpacing: '0.06em' }}>YOUR WORKSPACES</div>
             </div>
 
             {/* Account list */}
@@ -269,13 +272,15 @@ export default function Header({
             {/* Divider + actions */}
             <div style={{ borderTop: `1px solid ${t.cardBorder}` }}>
               {[
-                { icon: '⚙️', label: 'Account Settings' },
-                { icon: '🔒', label: 'Privacy & Security' },
-                { icon: '🚪', label: 'Sign Out', danger: true },
+                { label: 'Switch account', danger: false },
+                { label: 'Sign Out', danger: true },
               ].map((item) => (
                 <div
                   key={item.label}
-                  onClick={() => setAccountOpen(false)}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => { setAccountOpen(false); onSignOut?.() }}
+                  onKeyDown={(event) => { if (event.key === 'Enter') { setAccountOpen(false); onSignOut?.() } }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '10px 16px', cursor: 'pointer', fontSize: 13,
@@ -286,7 +291,7 @@ export default function Header({
                   onMouseEnter={(e) => (e.currentTarget.style.background = item.danger ? '#fff5f5' : '#f8faff')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <span style={{ fontSize: 15 }}>{item.icon}</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M10 4H4v16h6M14 8l4 4-4 4M8 12h10" /></svg>
                   {item.label}
                 </div>
               ))}

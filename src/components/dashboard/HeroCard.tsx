@@ -48,7 +48,7 @@ export default function HeroCard({
             marginBottom: 14,
           }}
         >
-          Welcome back, {userName} 👋 &nbsp;·&nbsp; {pendingAssignments} pending &nbsp;·&nbsp; {coursesInProgress} courses in progress
+          Welcome back, {userName} &nbsp;·&nbsp; {pendingAssignments} pending &nbsp;·&nbsp; {coursesInProgress} courses in progress
         </div>
 
         {/* Heading */}
@@ -105,6 +105,7 @@ export default function HeroCard({
             Find Courses
           </button>
           <button
+            onClick={onContinue}
             style={{
               padding: '11px 26px',
               borderRadius: 8,

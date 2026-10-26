@@ -36,13 +36,13 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: 'dashboard', icon: DashboardIcon, label: 'Dashboard' },
-  { id: 'courses', icon: CoursesIcon, label: 'My Courses', badge: 7 },
-  { id: 'video-lessons', icon: VideoIcon, label: 'Video Lessons', badge: 3 },
-  { id: 'assignments', icon: AssignmentsIcon, label: 'Assignments', badge: 2 },
+  { id: 'courses', icon: CoursesIcon, label: 'My Courses' },
+  { id: 'video-lessons', icon: VideoIcon, label: 'Video Lessons' },
+  { id: 'assignments', icon: AssignmentsIcon, label: 'Assignments' },
   { id: 'quizzes', icon: QuizzesIcon, label: 'Quizzes' },
   { id: 'progress', icon: ProgressIcon, label: 'Progress' },
   { id: 'analytics', icon: AnalyticsIcon, label: 'Analytics' },
-  { id: 'notifications', icon: NotificationsIcon, label: 'Notifications', badge: 5 },
+  { id: 'notifications', icon: NotificationsIcon, label: 'Notifications' },
 ]
 
 interface SidebarProps {
@@ -50,16 +50,17 @@ interface SidebarProps {
   onNavigate: (page: PageId) => void
   role?: 'student' | 'instructor'
   onSwitchRole?: () => void
+  userName?: string
 }
 
 const instructorItems: NavItem[] = [
   { id: 'instructor', icon: DashboardIcon, label: 'Overview' },
-  { id: 'instructor-courses', icon: CoursesIcon, label: 'My Courses', badge: 4 },
-  { id: 'instructor-students', icon: ProfileIcon, label: 'Students', badge: 126 },
-  { id: 'instructor-grading', icon: AssignmentsIcon, label: 'Grading', badge: 12 },
+  { id: 'instructor-courses', icon: CoursesIcon, label: 'My Courses' },
+  { id: 'instructor-students', icon: ProfileIcon, label: 'Students' },
+  { id: 'instructor-grading', icon: AssignmentsIcon, label: 'Grading' },
 ]
 
-export default function Sidebar({ activePage, onNavigate, role = 'student', onSwitchRole }: SidebarProps) {
+export default function Sidebar({ activePage, onNavigate, role = 'student', onSwitchRole, userName = 'Learner' }: SidebarProps) {
   const t = blueTheme
   const [collapsed, setCollapsed] = useState(false)
   const [hoveredId, setHoveredId] = useState<PageId | null>(null)
@@ -371,7 +372,7 @@ export default function Sidebar({ activePage, onNavigate, role = 'student', onSw
                 <path d="M2 6 Q6 2 10 6 Q6 10 2 6Z" stroke={t.logoColor} strokeWidth="1.3" />
               </svg>
             </div>
-            <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Switch Role</span>
+            <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>Switch account</span>
           </button>
         )}
 
@@ -401,12 +402,12 @@ export default function Sidebar({ activePage, onNavigate, role = 'student', onSw
               boxShadow: '0 2px 6px rgba(37,99,235,0.3)',
             }}
           >
-            W
+            {userName[0]?.toUpperCase()}
           </div>
           {!collapsed && (
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1e3a8a', whiteSpace: 'nowrap' }}>
-                Wankhede
+                {userName}
               </div>
               <div style={{ fontSize: 10, color: '#93c5fd' }}>{roleName}</div>
             </div>

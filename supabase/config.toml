@@ -1,0 +1,4 @@
+[functions.make-server-6593f319]
+entrypoint = "./functions/server/main.ts"
+# The gateway receives the public key; app.ts verifies X-Access-Token with Auth.
+verify_jwt = false

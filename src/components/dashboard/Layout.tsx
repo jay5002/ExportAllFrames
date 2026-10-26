@@ -3,6 +3,7 @@ import { blueTheme } from './theme'
 import Sidebar, { type PageId } from './Sidebar'
 import Header from './Header'
 import type { AccountRole } from './Header'
+import { useAuth } from '../auth/AuthProvider'
 
 const routeToPage: Record<string, PageId> = {
   '/dashboard':     'dashboard',
@@ -36,6 +37,7 @@ const pageToRoute: Record<PageId, string> = {
 }
 
 export default function Layout() {
+  const { profile, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const t = blueTheme
@@ -52,7 +54,14 @@ export default function Layout() {
   }
 
   const handleRoleChange = (role: AccountRole) => {
+    if (role === 'instructor' && profile?.role !== 'instructor') return
     navigate(role === 'student' ? '/dashboard' : `/${role}`)
+  }
+
+  const switchAccount = () => {
+    void signOut().then(() => navigate('/login')).catch(() => {
+      window.alert('Unable to sign out. Please check your connection and try again.')
+    })
   }
 
   return (
@@ -68,16 +77,19 @@ export default function Layout() {
         activePage={activePage}
         onNavigate={handleNavigate}
         role={activeRole}
-        onSwitchRole={() => handleRoleChange(activeRole === 'student' ? 'instructor' : 'student')}
+        onSwitchRole={switchAccount}
+        userName={profile?.name}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
         <Header
-          userName="Wankhede"
-          notificationCount={5}
+          userName={profile?.name}
+          notificationCount={0}
           onNotificationClick={handleNotificationClick}
           activeRole={activeRole}
           onRoleChange={handleRoleChange}
+          canTeach={profile?.role === 'instructor'}
+          onSignOut={switchAccount}
         />
         <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
           <Outlet />
