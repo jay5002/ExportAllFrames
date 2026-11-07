@@ -140,6 +140,53 @@ The original nine backend tests are preserved and use an in-memory store to exer
 7. Confirm another Instructor cannot modify the first Instructor's courses or grade their students.
 8. Test password recovery and sign-out. Unauthenticated visits to protected pages should return to login.
 
+## Instructor assessment management (source implementation; not deployed automatically)
+
+The Assignments and Quizzes instructor routes use the existing `assignment`, `quiz`,
+`submission`, and `attempt` records under `skillverse:v2:` in `kv_store_6593f319`.
+No new table, SQL migration, security-policy change, seed, or backfill is required.
+
+- `GET /instructor/assessments` is instructor-only and returns assessments,
+  submissions, and attempts belonging to the instructor's courses. It reports
+  `capability: "assessment-management-v1"`; the editor remains disabled if this
+  capability is absent or the request fails.
+- Existing assignment/quiz create and update routes now accept `status`
+  (`Draft`/`Published`), description, and instructions. Assignments also accept
+  `maxMarks`; quizzes accept per-question `marks`, `duration` (minutes; 0 means
+  untimed), and `passingScore` (0–100). Missing status remains Published for
+  backwards compatibility. Legacy assignment marks default to 100; legacy quiz
+  question marks default to 1. Nothing rewrites old records automatically.
+- Student lists and submission/attempt routes enforce publication, course
+  publication, and enrollment. Authoring and result reports enforce course
+  ownership; answer keys are not returned to students.
+- Grading accepts raw `marks` and saves a normalized percentage in the existing
+  `score` field. The original percentage-based Grading page remains compatible.
+  Maximum assignment marks are locked after the first submission. Quiz
+  questions, marks, duration, and passing score are locked after the first
+  attempt, protecting the meaning of existing results.
+- `POST /quizzes/:id/start` creates or resumes an attempt in the existing attempt
+  namespace. `PUT /quizzes/:id/attempts/:attemptId` saves answers. The original
+  submission route accepts `attemptId` and scores against the server-held
+  question snapshot. Conditional revision/status updates prevent a late save or
+  competing submission from overwriting a finalized result.
+- The server enforces expiry. After expiry only already-saved answers are
+  graded. Reading the student's quiz list or the owning instructor's reports
+  settles expired attempts using conditional writes; no background worker is
+  needed. Leaving a quiz does not pause its timer.
+
+The updated existing Edge Function must be deployed through the established
+process **only after explicit authorization** before these additions work live.
+During implementation, the read-only baseline live checks passed for API 2.1.0
+(health, missing/invalid-session rejection, and CORS), but live health did not
+advertise `assessment-management-v1`. No signed-in live account or database
+records were available for inspection.
+No frontend fallback claims that local-only publishing, grading, or submissions
+succeeded. Existing untimed student quizzes keep their original real-server
+submission workflow when the health endpoint does not advertise the capability;
+the page explicitly says that unsent answers are not saved. Timed quizzes never
+fall back to a client-only timer. Local API/browser verification uses an isolated in-memory Store;
+it does not establish live Supabase persistence or successful account login.
+
 ## Sample courses
 
 - `POST /seed/sample-courses` (instructor only) writes three published courses (JavaScript Fundamentals, SQL and Database Essentials, Data Structures and Algorithms with JavaScript) with 3 modules, 6 lessons, one quiz and one assignment each. Content lives in `supabase/functions/server/sample-content.ts`.

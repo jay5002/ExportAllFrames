@@ -24,6 +24,12 @@ export function createStore(client: SupabaseClient): Store {
       if (error) throw error;
       return !!data?.length;
     },
+    async updateAttempt(key, revision, value) {
+      const { data, error } = await client.from(table).update({ value }).eq("key", key)
+        .eq("value->>status", "InProgress").eq("value->>revision", String(revision)).select("key");
+      if (error) throw error;
+      return !!data?.length;
+    },
     async getByPrefix(prefix) {
       const values: unknown[] = [];
       const pageSize = 500;

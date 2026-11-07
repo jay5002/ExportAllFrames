@@ -7,7 +7,6 @@ import {
   AssignmentsIcon,
   QuizzesIcon,
   ProgressIcon,
-  AnalyticsIcon,
   NotificationsIcon,
   ProfileIcon,
 } from './icons'
@@ -19,12 +18,13 @@ export type PageId =
   | 'assignments'
   | 'quizzes'
   | 'progress'
-  | 'analytics'
   | 'notifications'
   | 'profile'
   | 'instructor'
   | 'instructor-courses'
   | 'instructor-students'
+  | 'instructor-assignments'
+  | 'instructor-quizzes'
   | 'instructor-grading'
 
 interface NavItem {
@@ -41,7 +41,6 @@ const navItems: NavItem[] = [
   { id: 'assignments', icon: AssignmentsIcon, label: 'Assignments' },
   { id: 'quizzes', icon: QuizzesIcon, label: 'Quizzes' },
   { id: 'progress', icon: ProgressIcon, label: 'Progress' },
-  { id: 'analytics', icon: AnalyticsIcon, label: 'Analytics' },
   { id: 'notifications', icon: NotificationsIcon, label: 'Notifications' },
 ]
 
@@ -57,19 +56,21 @@ const instructorItems: NavItem[] = [
   { id: 'instructor', icon: DashboardIcon, label: 'Overview' },
   { id: 'instructor-courses', icon: CoursesIcon, label: 'My Courses' },
   { id: 'instructor-students', icon: ProfileIcon, label: 'Students' },
+  { id: 'instructor-assignments', icon: AssignmentsIcon, label: 'Assignments' },
+  { id: 'instructor-quizzes', icon: QuizzesIcon, label: 'Quizzes' },
   { id: 'instructor-grading', icon: AssignmentsIcon, label: 'Grading' },
 ]
 
 export default function Sidebar({ activePage, onNavigate, role = 'student', onSwitchRole, userName = 'Learner' }: SidebarProps) {
   const t = blueTheme
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 900)
   const [hoveredId, setHoveredId] = useState<PageId | null>(null)
   const visibleItems = role === 'instructor' ? instructorItems : navItems
   const panelName = role === 'instructor' ? 'Instructor Panel' : 'Student Panel'
   const sectionName = role === 'instructor' ? 'TEACHING' : 'LEARNING'
   const roleName = role === 'instructor' ? 'Instructor' : 'Student'
 
-  const W = collapsed ? 82 : 220
+  const W = collapsed ? 72 : 240
 
   return (
     <aside
@@ -77,14 +78,13 @@ export default function Sidebar({ activePage, onNavigate, role = 'student', onSw
         width: W,
         minWidth: W,
         background: '#ffffff',
-        borderRight: '1px solid #e0eaff',
+        borderRight: '1px solid #e2e8f0',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         transition: 'width 0.25s cubic-bezier(.4,0,.2,1), min-width 0.25s cubic-bezier(.4,0,.2,1)',
         overflow: 'hidden',
         flexShrink: 0,
-        boxShadow: '2px 0 12px rgba(37,99,235,0.06)',
       }}
     >
       {/* ── Logo row + collapse toggle ────────────────────── */}
@@ -187,7 +187,7 @@ export default function Sidebar({ activePage, onNavigate, role = 'student', onSw
       )}
 
       {/* ── Nav items ─────────────────────────────────────── */}
-      <nav style={{ flex: 1, padding: collapsed ? '10px 4px' : '0 10px', overflowY: 'auto', overflowX: 'hidden' }}>
+      <nav style={{ flex: 1, padding: collapsed ? '12px 8px' : '8px 12px', overflowY: 'auto', overflowX: 'hidden' }}>
         {visibleItems.map(({ id, icon: Icon, label, badge }) => {
           const active = activePage === id
           const hovered = hoveredId === id
@@ -199,7 +199,7 @@ export default function Sidebar({ activePage, onNavigate, role = 'student', onSw
                 <div
                   style={{
                     position: 'absolute',
-                    left: 76,
+                    left: 68,
                     top: '50%',
                     transform: 'translateY(-50%)',
                     background: '#1e3a8a',
@@ -234,22 +234,26 @@ export default function Sidebar({ activePage, onNavigate, role = 'student', onSw
               )}
 
               <div
+                role="link"
+                tabIndex={0}
+                aria-current={active ? 'page' : undefined}
                 onClick={() => onNavigate(id)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onNavigate(id) } }}
                 onMouseEnter={() => setHoveredId(id)}
                 onMouseLeave={() => setHoveredId(null)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: collapsed ? 0 : 10,
-                  padding: collapsed ? '10px 0' : '9px 12px',
+                  padding: collapsed ? '10px 0' : '10px 12px',
                   justifyContent: collapsed ? 'center' : 'flex-start',
                   borderRadius: 10,
                   cursor: 'pointer',
                   position: 'relative',
                   background: active
-                    ? 'linear-gradient(90deg,#eff6ff,#dbeafe)'
+                    ? '#eff6ff'
                     : hovered
-                    ? '#f8faff'
+                    ? '#f8fafc'
                     : 'transparent',
                   transition: 'background 0.15s',
                 }}

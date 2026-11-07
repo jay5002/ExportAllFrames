@@ -12,11 +12,12 @@ const routeToPage: Record<string, PageId> = {
   '/assignments':   'assignments',
   '/quizzes':       'quizzes',
   '/progress':      'progress',
-  '/analytics':     'analytics',
   '/notifications': 'notifications',
   '/instructor':         'instructor',
   '/instructor/courses': 'instructor-courses',
   '/instructor/students':'instructor-students',
+  '/instructor/assignments':'instructor-assignments',
+  '/instructor/quizzes':'instructor-quizzes',
   '/instructor/grading': 'instructor-grading',
 }
 
@@ -27,12 +28,13 @@ const pageToRoute: Record<PageId, string> = {
   assignments:    '/assignments',
   quizzes:        '/quizzes',
   progress:       '/progress',
-  analytics:      '/analytics',
   notifications:  '/notifications',
   profile:        '/dashboard',
   instructor:          '/instructor',
   'instructor-courses':'/instructor/courses',
   'instructor-students':'/instructor/students',
+  'instructor-assignments':'/instructor/assignments',
+  'instructor-quizzes':'/instructor/quizzes',
   'instructor-grading':'/instructor/grading',
 }
 
@@ -91,7 +93,7 @@ export default function Layout() {
           canTeach={profile?.role === 'instructor'}
           onSignOut={switchAccount}
         />
-        <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <Outlet />
         </div>
       </div>

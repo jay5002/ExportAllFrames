@@ -16,6 +16,11 @@ function setup() {
       if (records.get(key)?.completed !== expected) return false;
       records.set(key, structuredClone(value)); return true;
     },
+    updateAttempt: async (key, revision, value) => {
+      const current = records.get(key);
+      if (current?.status !== "InProgress" || current.revision !== revision) return false;
+      records.set(key, structuredClone(value)); return true;
+    },
     getByPrefix: async prefix => [...records.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => structuredClone(value)),
   };
   const users = new Map<string, { id: string; user_metadata: Record<string, unknown> }>();
@@ -262,4 +267,201 @@ Deno.test("instructors edit course details and assessments; students and other i
   equal((await request(`/quizzes/${id}-quiz`, "other-teacher", "PUT", { title: "x", questions })).status, 403);
   equal((await request(`/quizzes/${id}-quiz`, "teacher", "PUT", { title: "x", questions: [{ q: "q", options: ["a"], answer: 0 }] })).status, 400);
   equal((await request(`/courses/${id}/assessments`, "teacher")).data.quizzes[0].title, "Short quiz");
+});
+
+Deno.test("assignment workflow: draft, publish, enrolled submission, marks, feedback, and existing grading queue", async () => {
+  const { request, course, records } = setup();
+  const courseId = await course();
+  await request(`/enrollments/${courseId}`, "student", "PUT", { completed: 0 });
+  const created = await request("/assignments", "teacher", "POST", {
+    courseId, title: "Research report", description: "Investigate a topic", instructions: "Cite your sources",
+    dueDate: "2030-01-01T12:00:00Z", maxMarks: 40, status: "Draft",
+  });
+  equal(created.status, 201);
+  const id = created.data.id;
+  equal((await request("/assignments", "student")).data.length, 0);
+  equal((await request(`/assignments/${id}/submit`, "student", "POST", { content: "Not published" })).status, 404);
+  equal((await request(`/assignments/${id}`, "other-teacher", "PUT", { status: "Published" })).status, 403);
+  equal((await request(`/assignments/${id}`, "teacher", "PUT", { status: "Published" })).status, 200);
+  equal((await request("/assignments", "student")).data[0].instructions, "Cite your sources");
+  equal((await request("/assignments", "other-student")).data.length, 0);
+  const submitted = await request(`/assignments/${id}/submit`, "student", "POST", { content: "My report" });
+  equal(submitted.status, 201);
+  equal(submitted.data.maxMarks, 40);
+  equal((await request("/workspace", "teacher")).data.submissions[0].id, submitted.data.id);
+  equal((await request("/instructor/assessments", "teacher")).data.submissions[0].status, "Pending");
+  equal((await request(`/submissions/${submitted.data.id}`, "teacher", "PUT", { marks: 41 })).status, 400);
+  equal((await request(`/assignments/${id}`, "teacher", "PUT", { maxMarks: 50 })).status, 409);
+  equal((await request(`/submissions/${submitted.data.id}`, "teacher", "PUT", { marks: 34, feedback: "Strong evidence" })).status, 200);
+  const result = (await request("/assignments", "student")).data[0].submission;
+  equal([result.marks, result.maxMarks, result.score, result.feedback], [34, 40, 85, "Strong evidence"]);
+  equal(records.get(`skillverse:v2:submission:${submitted.data.id}`).content, "My report");
+  // The pre-existing percentage-based grading UI still uses the same record.
+  equal((await request(`/submissions/${submitted.data.id}`, "teacher", "PUT", { score: 50, feedback: "Revised" })).data.marks, 20);
+  equal((await request(`/assignments/${id}`, "teacher", "PUT", { status: "Draft" })).status, 200);
+  equal((await request("/assignments", "student")).data.length, 0);
+  equal((await request("/workspace", "student")).data.submissions[0].feedback, "Revised");
+});
+
+Deno.test("quiz workflow: publication, weighted server scores, instructor reports, and answer-key privacy", async () => {
+  const { request, course, records } = setup();
+  const courseId = await course();
+  await request(`/enrollments/${courseId}`, "student", "PUT", { completed: 0 });
+  const created = await request("/quizzes", "teacher", "POST", {
+    courseId, title: "Weighted quiz", description: "Review concepts", instructions: "Choose one answer",
+    duration: 5, passingScore: 70, status: "Draft",
+    questions: [{ q: "First", options: ["A", "B"], answer: 1, marks: 3 }, { q: "Second", options: ["C", "D"], answer: 0, marks: 1 }],
+  });
+  equal(created.status, 201);
+  const id = created.data.id;
+  equal((await request("/quizzes", "student")).data.length, 0);
+  equal((await request(`/quizzes/${id}/start`, "student", "POST", {})).status, 404);
+  await request(`/quizzes/${id}`, "teacher", "PUT", { status: "Published" });
+  const visible = (await request("/quizzes", "student")).data[0];
+  equal([visible.maxMarks, visible.duration, visible.passingScore], [4, 5, 70]);
+  equal("answer" in visible.questions[0], false);
+  equal((await request(`/quizzes/${id}/start`, "other-student", "POST", {})).status, 403);
+  const session = await request(`/quizzes/${id}/start`, "student", "POST", {});
+  equal(session.status, 200);
+  equal("answer" in session.data.questions[0], false);
+  equal((await request(`/quizzes/${id}/start`, "student", "POST", {})).data.id, session.data.id);
+  equal((await request(`/quizzes/${id}/attempts`, "student", "POST", { answers: [1, 1] })).status, 400);
+  equal((await request(`/quizzes/${id}/attempts/${session.data.id}`, "student", "PUT", { answers: [1, -1] })).status, 200);
+  equal((await request(`/quizzes/${id}/start`, "student", "POST", {})).data.answers, [1, -1]);
+  equal((await request(`/quizzes/${id}/attempts`, "student", "POST", { attemptId: session.data.id, answers: [1, 1], score: 100, passed: false })).data.score, 75);
+  const again = await request(`/quizzes/${id}/attempts`, "student", "POST", { attemptId: session.data.id, answers: [0, 0] });
+  equal([again.data.score, again.data.marks, again.data.maxMarks, again.data.passed], [75, 3, 4, true]);
+  equal("questions" in again.data, false);
+  equal((await request("/quizzes", "student")).data[0].attempts, 1);
+  const report = (await request("/instructor/assessments", "teacher")).data;
+  equal([report.attempts.length, report.attempts[0].studentId, report.attempts[0].score], [1, "student", 75]);
+  equal(report.quizzes[0].questions[0].answer, 1);
+  equal((await request("/instructor/assessments", "other-teacher")).data.attempts.length, 0);
+  equal(records.get(`skillverse:v2:attempt:student:${id}:${session.data.id}`).score, 75);
+  equal((await request(`/quizzes/${id}`, "teacher", "PUT", { passingScore: 90 })).status, 409);
+  equal((await request(`/quizzes/${id}`, "teacher", "PUT", { instructions: "Updated instructions" })).status, 200);
+  equal((await request(`/quizzes/${id}`, "teacher", "PUT", { title: "Legacy editor title", questions: [{ q: "First", options: ["A", "B"], answer: 1 }, { q: "Second", options: ["C", "D"], answer: 0 }] })).status, 200);
+  equal((await request(`/courses/${courseId}/assessments`, "teacher")).data.quizzes[0].questions[0].marks, 3);
+});
+
+Deno.test("timed attempts grade only answers saved before expiry and reject cross-user writes", async () => {
+  const { request, course, records } = setup();
+  const courseId = await course();
+  for (const student of ["student", "other-student"]) await request(`/enrollments/${courseId}`, student, "PUT", { completed: 0 });
+  const quiz = await request("/quizzes", "teacher", "POST", { courseId, title: "Timed", duration: 1, questions: [{ q: "Q", options: ["A", "B"], answer: 1, marks: 5 }] });
+  const id = quiz.data.id;
+  const session = (await request(`/quizzes/${id}/start`, "student", "POST", {})).data;
+  equal((await request(`/quizzes/${id}/attempts/${session.id}`, "other-student", "PUT", { answers: [1] })).status, 404);
+  await request(`/quizzes/${id}/attempts/${session.id}`, "student", "PUT", { answers: [0] });
+  const key = `skillverse:v2:attempt:student:${id}:${session.id}`;
+  records.get(key).expiresAt = new Date(Date.now() - 1000).toISOString();
+  equal((await request(`/quizzes/${id}/attempts/${session.id}`, "student", "PUT", { answers: [1] })).status, 409);
+  const result = (await request(`/quizzes/${id}/attempts`, "student", "POST", { attemptId: session.id, answers: [1] })).data;
+  equal([result.status, result.score, result.answers], ["Expired", 0, [0]]);
+  equal((await request(`/quizzes/${id}/start`, "student", "POST", {})).data.id === session.id, false);
+});
+
+Deno.test("assessment management enforces server-owned roles, course ownership, and validation", async () => {
+  const { request, course } = setup();
+  const courseId = await course();
+  for (const user of ["student", "other-student", "forged-metadata"]) equal((await request("/instructor/assessments", user)).status, 403);
+  equal((await request("/instructor/assessments", "")).status, 401);
+  equal((await request("/assignments", "other-teacher", "POST", { courseId, title: "X", dueDate: "2030-01-01" })).status, 403);
+  equal((await request("/assignments", "teacher", "POST", { courseId, title: "X", dueDate: "2030-01-01", maxMarks: 0 })).status, 400);
+  equal((await request("/assignments", "teacher", "POST", { courseId, title: "X", dueDate: "invalid" })).status, 400);
+  const base = { courseId, title: "X", questions: [{ q: "Q", options: ["A", "B"], answer: 1 }] };
+  for (const extra of [{ status: "Hidden" }, { duration: 241 }, { passingScore: -1 }, { questions: [{ q: "Q", options: ["A", "B"], answer: 2 }] }, { questions: [{ q: "Q", options: ["A", "B"], answer: 1, marks: 0 }] }]) {
+    equal((await request("/quizzes", "teacher", "POST", { ...base, ...extra })).status, 400);
+  }
+  const assignment = (await request("/assignments", "teacher", "POST", { courseId, title: "X", dueDate: "2030-01-01" })).data;
+  equal((await request(`/assignments/${assignment.id}`, "teacher", "PUT", { courseId: "different" })).status, 400);
+  // Legacy records remain published and keep their original IDs and percentage grades.
+  equal((await request("/instructor/assessments", "teacher")).data.assignments[0].id, assignment.id);
+});
+
+Deno.test("parallel attempt finalization is conditional and never overwrites the saved grade", async () => {
+  const { request, course } = setup();
+  const courseId = await course();
+  await request(`/enrollments/${courseId}`, "student", "PUT", { completed: 0 });
+  const quiz = (await request("/quizzes", "teacher", "POST", { courseId, title: "Q", questions: [{ q: "Q", options: ["A", "B"], answer: 1 }] })).data;
+  const session = (await request(`/quizzes/${quiz.id}/start`, "student", "POST", {})).data;
+  const submissions = await Promise.all([
+    request(`/quizzes/${quiz.id}/attempts`, "student", "POST", { attemptId: session.id, answers: [1] }),
+    request(`/quizzes/${quiz.id}/attempts`, "student", "POST", { attemptId: session.id, answers: [0] }),
+  ]);
+  equal(submissions.map(item => item.status).sort(), [201, 409]);
+  equal((await request("/instructor/assessments", "teacher")).data.attempts.length, 1);
+  equal((await request(`/quizzes/${quiz.id}/attempts/${session.id}`, "student", "PUT", { answers: [0] })).status, 409);
+});
+
+Deno.test("expired attempts are persisted from saved answers when the owner reads results, without touching other courses", async () => {
+  const { request, course, records } = setup();
+  const courseId = await course();
+  await request(`/enrollments/${courseId}`, "student", "PUT", { completed: 0 });
+  const quiz = (await request("/quizzes", "teacher", "POST", { courseId, title: "Auto finalize", duration: 1, questions: [{ q: "Q", options: ["A", "B"], answer: 1 }] })).data;
+  const attempt = (await request(`/quizzes/${quiz.id}/start`, "student", "POST", {})).data;
+  await request(`/quizzes/${quiz.id}/attempts/${attempt.id}`, "student", "PUT", { answers: [1] });
+  const key = `skillverse:v2:attempt:student:${quiz.id}:${attempt.id}`;
+  records.get(key).expiresAt = new Date(Date.now() - 1000).toISOString();
+  equal((await request("/instructor/assessments", "other-teacher")).data.attempts.length, 0);
+  equal(records.get(key).status, "InProgress");
+  const report = (await request("/instructor/assessments", "teacher")).data.attempts[0];
+  equal([report.status, report.score, report.passed], ["Expired", 100, true]);
+  equal(records.get(key).status, "Expired");
+  equal((await request("/quizzes", "student")).data[0].attempts, 1);
+});
+
+Deno.test("GET /instructor/assessments returns assessment-management-v1, enriches legacy attempts, and enforces auth & ownership", async () => {
+  const { request, course, records } = setup();
+  const ownedCourseId = await course();
+  const otherCourseRes = await request("/courses", "other-teacher", "POST", { name: "Other Course", lessons: 1 });
+  const otherCourseId = otherCourseRes.data.id;
+  await request(`/courses/${otherCourseId}/lessons`, "other-teacher", "PUT", { lessons: [{ title: "L1", content: "C1" }] });
+  await request(`/courses/${otherCourseId}`, "other-teacher", "PUT", { status: "Published" });
+
+  await request(`/enrollments/${ownedCourseId}`, "student", "PUT", { completed: 0 });
+  await request(`/enrollments/${otherCourseId}`, "other-student", "PUT", { completed: 0 });
+
+  const ownedAssignment = (await request("/assignments", "teacher", "POST", { courseId: ownedCourseId, title: "Owned HW", description: "Desc", dueDate: "2030-01-01" })).data;
+  const otherAssignment = (await request("/assignments", "other-teacher", "POST", { courseId: otherCourseId, title: "Other HW", description: "Desc", dueDate: "2030-01-01" })).data;
+  await request(`/assignments/${ownedAssignment.id}/submit`, "student", "POST", { content: "Student HW submission" });
+  await request(`/assignments/${otherAssignment.id}/submit`, "other-student", "POST", { content: "Other HW submission" });
+
+  const ownedQuiz = (await request("/quizzes", "teacher", "POST", { courseId: ownedCourseId, title: "Owned Quiz", questions: [{ q: "Q1?", options: ["A", "B"], answer: 1 }] })).data;
+  const otherQuiz = (await request("/quizzes", "other-teacher", "POST", { courseId: otherCourseId, title: "Other Quiz", questions: [{ q: "Q2?", options: ["A", "B"], answer: 0 }] })).data;
+
+  // Simulate a legacy attempt record without `student` name field
+  records.set(`skillverse:v2:attempt:student:${ownedQuiz.id}:legacy-attempt`, {
+    id: "legacy-attempt", quizId: ownedQuiz.id, studentId: "student", answers: [1], correct: 1, total: 1, score: 100, createdAt: "2026-10-01T00:00:00Z",
+  });
+  await request(`/quizzes/${otherQuiz.id}/attempts`, "other-student", "POST", { answers: [0] });
+
+  // Authentication & role checks
+  equal((await request("/instructor/assessments", "")).status, 401);
+  equal((await request("/instructor/assessments", "invalid-token")).status, 401);
+  equal((await request("/instructor/assessments", "student")).status, 403);
+  equal((await request("/instructor/assessments", "forged-metadata")).status, 403);
+
+  // Owner instructor contract verification
+  const teacherRes = await request("/instructor/assessments", "teacher");
+  equal(teacherRes.status, 200);
+  equal(teacherRes.data.capability, "assessment-management-v1");
+  equal(teacherRes.data.assignments.map((a: any) => a.id), [ownedAssignment.id]);
+  equal(teacherRes.data.quizzes.map((q: any) => q.id), [ownedQuiz.id]);
+  equal(teacherRes.data.submissions.length, 1);
+  equal(teacherRes.data.submissions[0].assignmentId, ownedAssignment.id);
+  equal(teacherRes.data.attempts.length, 1);
+  equal(teacherRes.data.attempts[0].id, "legacy-attempt");
+  equal(teacherRes.data.attempts[0].student, "student");
+
+  // Other instructor isolation
+  const otherRes = await request("/instructor/assessments", "other-teacher");
+  equal(otherRes.status, 200);
+  equal(otherRes.data.capability, "assessment-management-v1");
+  equal(otherRes.data.assignments.map((a: any) => a.id), [otherAssignment.id]);
+  equal(otherRes.data.quizzes.map((q: any) => q.id), [otherQuiz.id]);
+  equal(otherRes.data.submissions.length, 1);
+  equal(otherRes.data.submissions[0].assignmentId, otherAssignment.id);
+  equal(otherRes.data.attempts.length, 1);
+  equal(otherRes.data.attempts[0].quizId, otherQuiz.id);
 });

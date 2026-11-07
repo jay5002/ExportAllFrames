@@ -71,13 +71,13 @@ export default function CurriculumEditor({ courseId, count }: { courseId: string
   const update = (field: keyof Lesson, value: string) => setLessons(current => current.map((lesson, i) => i === index ? { ...lesson, [field]: value } : lesson))
   const assignment = assignments.find(item => item.id === editingAssignment)
   const quiz = quizzes.find(item => item.id === editingQuiz)
-  return <section className="mt-5 border-t border-blue-100 pt-4">
-    <div className="mb-4 flex flex-wrap gap-3">{(['lessons', 'assignment', 'quiz'] as const).map(item => <button type="button" className="sv-link" aria-pressed={tab === item} key={item} onClick={() => { setTab(item); setNotice(''); setError('') }}>{item === 'lessons' ? 'Lesson content' : item === 'assignment' ? `Assignments (${assignments.length})` : `Quizzes (${quizzes.length})`}</button>)}</div>
+  return <section className="mt-5 border-t border-slate-200 pt-4">
+    <div className="mb-4 flex flex-wrap gap-3">{(['lessons', 'assignment', 'quiz'] as const).map(item => <button type="button" className="sv-chip" aria-pressed={tab === item} key={item} onClick={() => { setTab(item); setNotice(''); setError('') }}>{item === 'lessons' ? 'Lesson content' : item === 'assignment' ? `Assignments (${assignments.length})` : `Quizzes (${quizzes.length})`}</button>)}</div>
     {error && <p role="alert" className="sv-alert sv-alert-error">{error}{!loaded && <button className="sv-link" onClick={() => void load()}>Retry</button>}</p>}
     {notice && <p role="status" className="sv-alert sv-alert-success">{notice}</p>}
     <fieldset disabled={busy || !loaded} className="space-y-3 border-0">
       {tab === 'lessons' && <>
-        <label className="block text-xs font-semibold">Select lesson<select className="sv-field mt-2" value={index} onChange={event => setIndex(Number(event.target.value))}>{lessons.map((lesson, i) => <option value={i} key={lesson.id}>{i + 1}. {lesson.title}</option>)}</select></label>
+        <label className="sv-label">Select lesson<select className="sv-field mt-1" value={index} onChange={event => setIndex(Number(event.target.value))}>{lessons.map((lesson, i) => <option value={i} key={lesson.id}>{i + 1}. {lesson.title}</option>)}</select></label>
         <input className="sv-field" aria-label="Lesson title" value={lessons[index]?.title || ''} onChange={event => update('title', event.target.value)} maxLength={160} />
         <input className="sv-field" aria-label="Module name" value={lessons[index]?.module || ''} onChange={event => update('module', event.target.value)} maxLength={120} placeholder="Module name, e.g. Module 1: Getting Started" />
         <input className="sv-field" aria-label="Lesson summary" value={lessons[index]?.description || ''} onChange={event => update('description', event.target.value)} maxLength={500} placeholder="One-sentence lesson summary" />
@@ -86,16 +86,16 @@ export default function CurriculumEditor({ courseId, count }: { courseId: string
         <button className="sv-button" onClick={() => void save(() => backend(`/courses/${courseId}/lessons`, 'PUT', { lessons }), 'All lesson content saved. You can publish when every lesson has content.')}>{busy ? 'Saving…' : 'Save all lessons'}</button>
       </>}
       {tab === 'assignment' && <form className="space-y-3" key={editingAssignment || 'new'} onSubmit={saveAssignment}>
-        <label className="block text-xs font-semibold">Assignment<select className="sv-field mt-2" value={editingAssignment} onChange={event => { setEditingAssignment(event.target.value); setNotice('') }}><option value="">New assignment</option>{assignments.map(item => <option value={item.id} key={item.id}>Edit: {item.title}</option>)}</select></label>
+        <label className="sv-label">Assignment<select className="sv-field mt-1" value={editingAssignment} onChange={event => { setEditingAssignment(event.target.value); setNotice('') }}><option value="">New assignment</option>{assignments.map(item => <option value={item.id} key={item.id}>Edit: {item.title}</option>)}</select></label>
         <input className="sv-field" name="title" aria-label="Assignment title" placeholder="Assignment title" defaultValue={assignment?.title} maxLength={160} required />
         <textarea className="sv-field" name="description" aria-label="Assignment instructions" placeholder="What should students submit?" defaultValue={assignment?.description} rows={5} maxLength={8000} required />
-        <label className="block text-xs font-semibold">Due date<input className="sv-field mt-2" name="dueDate" type="date" defaultValue={assignment?.dueDate.slice(0, 10)} required /></label>
+        <label className="sv-label">Due date<input className="sv-field mt-1" name="dueDate" type="date" defaultValue={assignment?.dueDate.slice(0, 10)} required /></label>
         <button className="sv-button">{editingAssignment ? 'Save assignment' : 'Create assignment'}</button>
       </form>}
       {tab === 'quiz' && <form className="space-y-3" key={editingQuiz || 'new'} onSubmit={event => { try { saveQuiz(event) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Check your questions') } }}>
-        <label className="block text-xs font-semibold">Quiz<select className="sv-field mt-2" value={editingQuiz} onChange={event => { setEditingQuiz(event.target.value); setNotice('') }}><option value="">New quiz</option>{quizzes.map(item => <option value={item.id} key={item.id}>Edit: {item.title}</option>)}</select></label>
+        <label className="sv-label">Quiz<select className="sv-field mt-1" value={editingQuiz} onChange={event => { setEditingQuiz(event.target.value); setNotice('') }}><option value="">New quiz</option>{quizzes.map(item => <option value={item.id} key={item.id}>Edit: {item.title}</option>)}</select></label>
         <input className="sv-field" name="title" aria-label="Quiz title" placeholder="Quiz title" defaultValue={quiz?.title} maxLength={160} required />
-        <p className="text-xs leading-relaxed text-slate-500">Enter the question, then one option per line. Mark the correct option with *. Separate questions with a blank line.</p>
+        <p className="sv-meta">Enter the question, then one option per line. Mark the correct option with *. Separate questions with a blank line.</p>
         <textarea className="sv-field" aria-label="Quiz questions and answers" name="questions" rows={10} defaultValue={quizText(quiz)} placeholder={'Which hook manages side effects?\nuseState\n*useEffect\nuseRef\n\nWhat does HTML describe?\n*Structure\nStyling'} required />
         <button className="sv-button">{editingQuiz ? 'Save quiz' : 'Create quiz'}</button>
       </form>}

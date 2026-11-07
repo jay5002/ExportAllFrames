@@ -6,9 +6,9 @@ import VideoLessons from './components/dashboard/VideoLessons'
 import Assignments from './components/dashboard/Assignments'
 import Quizzes from './components/dashboard/Quizzes'
 import Progress from './components/dashboard/Progress'
-import Analytics from './components/dashboard/Analytics'
 import Notifications from './components/dashboard/Notifications'
 import InstructorDashboard from './components/dashboard/InstructorDashboard'
+import InstructorAssessments from './components/dashboard/InstructorAssessments'
 import AuthProvider, { ProtectedRoute } from './components/auth/AuthProvider'
 import AuthPage from './components/auth/AuthPage'
 
@@ -30,12 +30,14 @@ export default function App() {
           <Route path="assignments"   element={<Assignments />} />
           <Route path="quizzes"       element={<Quizzes />} />
           <Route path="progress"      element={<Progress />} />
-          <Route path="analytics"     element={<Analytics />} />
+          <Route path="analytics"     element={<Navigate to="/progress" replace />} />
           <Route path="notifications" element={<Notifications />} />
           <Route element={<ProtectedRoute instructor />}>
           <Route path="instructor" element={<InstructorDashboard />} />
           <Route path="instructor/courses" element={<InstructorDashboard view="courses" />} />
           <Route path="instructor/students" element={<InstructorDashboard view="students" />} />
+          <Route path="instructor/assignments" element={<InstructorAssessments kind="assignments" />} />
+          <Route path="instructor/quizzes" element={<InstructorAssessments kind="quizzes" />} />
           <Route path="instructor/grading" element={<InstructorDashboard view="grading" />} />
           </Route>
           <Route path="*"             element={<Navigate to="/dashboard" replace />} />

@@ -12,6 +12,7 @@ export type Store = {
   set: (key: string, value: any) => Promise<void>;
   insert: (key: string, value: any) => Promise<boolean>;
   advance: (key: string, expected: number, value: any) => Promise<boolean>;
+  updateAttempt: (key: string, revision: number, value: any) => Promise<boolean>;
   getByPrefix: (prefix: string) => Promise<any[]>;
 };
 export type Dependencies = {
@@ -67,14 +68,45 @@ function courseDetails(body: RecordData, current: RecordData = {}) {
     thumbnail: httpsLink(pick("thumbnail"), "Thumbnail links must use HTTPS"),
   };
 }
-function parseQuestions(value: unknown) {
+function parseQuestions(value: unknown, previous: RecordData[] = []) {
   if (!Array.isArray(value) || !value.length || value.length > 50) fail(400, "Add between 1 and 50 questions");
   return value.map((entry: unknown) => {
     const item = object(entry);
     if (!Array.isArray(item.options) || item.options.length < 2 || item.options.length > 6) fail(400, "Each question needs 2 to 6 options");
-    return { q: text(item.q, 1000), options: item.options.map((option: unknown) => text(option, 500)), answer: integer(item.answer, 0, item.options.length - 1) };
+    const saved = previous.find(question => question.q === item.q && question.answer === item.answer && JSON.stringify(question.options) === JSON.stringify(item.options));
+    return { q: text(item.q, 1000), options: item.options.map((option: unknown) => text(option, 500)), answer: integer(item.answer, 0, item.options.length - 1), marks: integer(item.marks ?? saved?.marks ?? 1, 1, 1000) };
   });
 }
+function assessmentStatus(value: unknown) {
+  if (value !== "Draft" && value !== "Published") fail(400, "Choose Draft or Published");
+  return value as "Draft" | "Published";
+}
+const isPublished = (item: RecordData) => (item.status ?? "Published") === "Published";
+function assignmentDetails(body: RecordData, current: RecordData = {}) {
+  const dueDate = text(body.dueDate ?? current.dueDate, 40);
+  if (!Number.isFinite(Date.parse(dueDate))) fail(400, "Enter a valid deadline");
+  return {
+    title: text(body.title ?? current.title, 160),
+    description: text(body.description ?? current.description ?? "", 8000, false),
+    instructions: text(body.instructions ?? current.instructions ?? "", 12000, false),
+    dueDate, maxMarks: integer(body.maxMarks ?? current.maxMarks ?? 100, 1, 10000),
+    status: assessmentStatus(body.status ?? current.status ?? "Published"),
+  };
+}
+function quizDetails(body: RecordData, current: RecordData = {}) {
+  const questions = parseQuestions(body.questions ?? current.questions, current.questions ?? []);
+  return {
+    title: text(body.title ?? current.title, 160),
+    description: text(body.description ?? current.description ?? "", 8000, false),
+    instructions: text(body.instructions ?? current.instructions ?? "", 12000, false),
+    duration: integer(body.duration ?? current.duration ?? 0, 0, 240),
+    passingScore: integer(body.passingScore ?? current.passingScore ?? 50, 0, 100),
+    status: assessmentStatus(body.status ?? current.status ?? "Published"),
+    questions, maxMarks: questions.reduce((sum, question) => sum + question.marks, 0),
+  };
+}
+const publicQuestions = (questions: RecordData[]) => questions.map(({ answer: _answer, ...question }) => question);
+const publicAttempt = ({ questions: _questions, ...attempt }: RecordData) => attempt;
 const initials = (name: string) => name.split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
 
 export function createApp({ store, authenticate, register }: Dependencies) {
@@ -107,6 +139,32 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     if (course.instructorId !== profile(c).id && (course.status !== "Published" || !await enrollment(c, courseId))) fail(403, "Enroll in this published course first");
     return course;
   }
+  async function accessibleQuiz(c: Context, id: string) {
+    const quiz = await get("quiz", id);
+    if (!quiz || !isPublished(quiz)) fail(404, "Published quiz not found");
+    await learnerCourse(c, quiz.courseId);
+    if (!await enrollment(c, quiz.courseId)) fail(403, "Enroll before taking this quiz");
+    return quiz;
+  }
+  function scoreAttempt(attempt: RecordData, questions: RecordData[], answers: number[], expired: boolean): RecordData {
+    const maxMarks = questions.reduce((sum, question) => sum + (question.marks ?? 1), 0);
+    const marks = questions.reduce((sum, question, index) => sum + (question.answer === answers[index] ? (question.marks ?? 1) : 0), 0);
+    const score = Math.round(marks / maxMarks * 100);
+    return {
+      ...attempt, answers, correct: questions.filter((question, index) => question.answer === answers[index]).length,
+      total: questions.length, marks, maxMarks, score, passed: score >= (attempt.passingScore ?? 50),
+      status: expired ? "Expired" : "Completed", createdAt: new Date().toISOString(),
+    };
+  }
+  async function settleExpiredAttempts(attempts: RecordData[]) {
+    return Promise.all(attempts.map(async attempt => {
+      if (attempt.status !== "InProgress" || !attempt.expiresAt || Date.now() < Date.parse(attempt.expiresAt)) return attempt;
+      const key = `${root}attempt:${attempt.studentId}:${attempt.quizId}:${attempt.id}`;
+      const result = { ...scoreAttempt(attempt, attempt.questions, attempt.answers, true), revision: attempt.revision + 1 };
+      if (await store.updateAttempt(key, attempt.revision, result)) return result;
+      return await store.get(key) ?? attempt;
+    }));
+  }
   async function visibleMessages(c: Context) {
     const user = profile(c);
     const enrolled = await store.getByPrefix(`${root}enrollment:${user.id}:`);
@@ -130,7 +188,7 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     return c.json({ error: "The server could not complete this request. Please retry." }, 500);
   });
   app.notFound(c => c.json({ error: "API endpoint not found. Check the deployed SkillVerse server version." }, 404));
-  app.get(`${prefix}/health`, c => c.json({ status: "ok", version: "2.1.0", authentication: true }));
+  app.get(`${prefix}/health`, c => c.json({ status: "ok", version: "2.1.0", authentication: true, capabilities: ["assessment-management-v1"] }));
 
   app.post(`${prefix}/auth/register`, async c => {
     const body = await bodyFor(c);
@@ -186,7 +244,7 @@ export function createApp({ store, authenticate, register }: Dependencies) {
       id: `${item.studentId}:${item.courseId}`, studentId: item.studentId, courseId: item.courseId, name: item.student, initials: initials(item.student),
       course: allCourses.find(course => course.id === item.courseId)?.name,
       progress: Math.round(item.completed / (allCourses.find(course => course.id === item.courseId)?.lessons || 1) * 100),
-      lastActive: new Date(item.updatedAt).toLocaleDateString(),
+      lastActive: new Date(item.updatedAt).toLocaleDateString(), enrolledAt: item.enrolledAt,
     })) : [];
     return c.json({
       courses: courses.map(course => {
@@ -250,7 +308,8 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     const current = await enrollment(c, course.id);
     if (!current && completed !== 0) fail(400, "Enroll before recording lesson progress");
     if (current && completed !== current.completed && completed !== current.completed + 1) fail(400, "Complete lessons in order");
-    const record = { courseId: course.id, studentId: user.id, student: user.name, completed, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const record = { courseId: course.id, studentId: user.id, student: user.name, completed, ...(current ? current.enrolledAt && { enrolledAt: current.enrolledAt } : { enrolledAt: now }), updatedAt: now };
     const key = `${root}enrollment:${user.id}:${course.id}`;
     const saved = current ? await store.advance(key, current.completed, record) : await store.insert(key, record);
     if (!saved) fail(409, "Your progress changed in another session. Refresh and try again.");
@@ -262,23 +321,21 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     const enrolled = new Set((await store.getByPrefix(`${root}enrollment:${user.id}:`)).map(item => item.courseId));
     const published = new Set((await list("course")).filter(item => item.status === "Published").map(item => item.id));
     const submissions = await list("submission");
-    return c.json((await list("assignment")).filter(item => item.instructorId === user.id || enrolled.has(item.courseId) && published.has(item.courseId)).map(item => ({
+    return c.json((await list("assignment")).filter(item => item.instructorId === user.id || isPublished(item) && enrolled.has(item.courseId) && published.has(item.courseId)).map(item => ({
       ...item, submission: submissions.find(sub => sub.assignmentId === item.id && sub.studentId === user.id) || null,
     })));
   });
   app.post(`${prefix}/assignments`, async c => {
     const body = await bodyFor(c);
     const course = await ownedCourse(c, text(body.courseId, 100));
-    const dueDate = text(body.dueDate, 40);
-    if (!Number.isFinite(Date.parse(dueDate))) fail(400, "Enter a valid due date");
-    const item = { id: crypto.randomUUID(), courseId: course.id, course: course.name, instructorId: profile(c).id, title: text(body.title, 160), description: text(body.description, 8000), dueDate };
+    const item = { id: crypto.randomUUID(), courseId: course.id, course: course.name, instructorId: profile(c).id, ...assignmentDetails(body) };
     await put("assignment", item.id, item);
     return c.json(item, 201);
   });
   app.post(`${prefix}/assignments/:id/submit`, async c => {
     const user = profile(c);
     const assignment = await get("assignment", c.req.param("id"));
-    if (!assignment) fail(404, "Assignment not found");
+    if (!assignment || !isPublished(assignment)) fail(404, "Published assignment not found");
     await learnerCourse(c, assignment.courseId);
     if (!await enrollment(c, assignment.courseId)) fail(403, "Enroll before submitting work");
     const id = `${user.id}:${assignment.id}`;
@@ -287,6 +344,7 @@ export function createApp({ store, authenticate, register }: Dependencies) {
       id, studentId: user.id, student: user.name, initials: initials(user.name),
       assignmentId: assignment.id, assignment: assignment.title, courseId: assignment.courseId, course: assignment.course,
       content: text((await bodyFor(c)).content, 20000), submitted: new Date().toISOString(), status: "Pending",
+      maxMarks: assignment.maxMarks ?? 100,
     };
     if (!await store.insert(`${root}submission:${id}`, submission)) fail(409, "You have already submitted this assignment");
     return c.json(submission, 201);
@@ -296,15 +354,19 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     if (!submission) fail(404, "Submission not found");
     await ownedCourse(c, submission.courseId);
     const body = await bodyFor(c);
-    const updated = { ...submission, score: integer(body.score, 0, 100), feedback: text(body.feedback ?? "", 4000, false), status: "Graded" };
+    const assignment = await get("assignment", submission.assignmentId);
+    const maxMarks = submission.maxMarks ?? assignment?.maxMarks ?? 100;
+    const score = body.marks === undefined ? integer(body.score, 0, 100) : null;
+    const marks = body.marks === undefined ? Number((score! / 100 * maxMarks).toFixed(2)) : body.marks;
+    if (typeof marks !== "number" || !Number.isFinite(marks) || marks < 0 || marks > maxMarks) fail(400, `Marks must be between 0 and ${maxMarks}`);
+    const updated = { ...submission, marks, maxMarks, score: score ?? Math.round(marks / maxMarks * 100), feedback: text(body.feedback ?? "", 4000, false), status: "Graded" };
     await put("submission", submission.id, updated);
     return c.json(updated);
   });
   app.post(`${prefix}/quizzes`, async c => {
     const body = await bodyFor(c);
     const course = await ownedCourse(c, text(body.courseId, 100));
-    const questions = parseQuestions(body.questions);
-    const quiz = { id: crypto.randomUUID(), instructorId: profile(c).id, courseId: course.id, course: course.name, title: text(body.title, 160), questions };
+    const quiz = { id: crypto.randomUUID(), instructorId: profile(c).id, courseId: course.id, course: course.name, ...quizDetails(body) };
     await put("quiz", quiz.id, quiz);
     return c.json({ id: quiz.id }, 201);
   });
@@ -312,23 +374,64 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     const user = profile(c);
     const enrolled = new Set((await store.getByPrefix(`${root}enrollment:${user.id}:`)).map(item => item.courseId));
     const published = new Set((await list("course")).filter(item => item.status === "Published").map(item => item.id));
-    const attempts = await store.getByPrefix(`${root}attempt:${user.id}:`);
-    return c.json((await list("quiz")).filter(item => item.instructorId === user.id || enrolled.has(item.courseId) && published.has(item.courseId)).map(quiz => ({
-      ...quiz, questions: quiz.questions.map(({ answer: _answer, ...question }: RecordData) => question),
-      attempts: attempts.filter(item => item.quizId === quiz.id).length,
-      bestScore: attempts.filter(item => item.quizId === quiz.id).reduce((best, item) => Math.max(best, item.score), 0),
+    const attempts = await settleExpiredAttempts(await store.getByPrefix(`${root}attempt:${user.id}:`));
+    return c.json((await list("quiz")).filter(item => item.instructorId === user.id || isPublished(item) && enrolled.has(item.courseId) && published.has(item.courseId)).map(quiz => ({
+      ...quiz, questions: publicQuestions(quiz.questions),
+      attempts: attempts.filter(item => item.quizId === quiz.id && item.status !== "InProgress").length,
+      bestScore: attempts.filter(item => item.quizId === quiz.id && item.status !== "InProgress").reduce((best, item) => Math.max(best, item.score), 0),
+      inProgress: attempts.some(item => item.quizId === quiz.id && item.status === "InProgress"),
     })));
   });
-  app.post(`${prefix}/quizzes/:id/attempts`, async c => {
-    const quiz = await get("quiz", c.req.param("id"));
-    if (!quiz) fail(404, "Quiz not found");
-    await learnerCourse(c, quiz.courseId);
-    if (!await enrollment(c, quiz.courseId)) fail(403, "Enroll before taking this quiz");
+  app.post(`${prefix}/quizzes/:id/start`, async c => {
+    const quiz = await accessibleQuiz(c, c.req.param("id"));
+    const user = profile(c);
+    const existing = (await store.getByPrefix(`${root}attempt:${user.id}:${quiz.id}:`)).find(item => item.status === "InProgress");
+    let attempt = existing;
+    if (!attempt) {
+      const startedAt = new Date().toISOString();
+      attempt = {
+        id: crypto.randomUUID(), quizId: quiz.id, courseId: quiz.courseId, studentId: user.id, student: user.name,
+        status: "InProgress", revision: 0, startedAt, passingScore: quiz.passingScore ?? 50,
+        expiresAt: quiz.duration ? new Date(Date.now() + quiz.duration * 60000).toISOString() : null,
+        questions: quiz.questions, answers: quiz.questions.map(() => -1),
+      };
+      await put("attempt", `${user.id}:${quiz.id}:${attempt.id}`, attempt);
+    }
+    return c.json({ ...publicAttempt(attempt), questions: publicQuestions(attempt.questions), serverTime: new Date().toISOString() });
+  });
+  app.put(`${prefix}/quizzes/:id/attempts/:attemptId`, async c => {
+    const quiz = await accessibleQuiz(c, c.req.param("id"));
+    const key = `${root}attempt:${profile(c).id}:${quiz.id}:${c.req.param("attemptId")}`;
+    const attempt = await store.get(key);
+    if (!attempt) fail(404, "Attempt not found");
+    if (attempt.status !== "InProgress") fail(409, "This attempt has already been submitted");
+    if (attempt.expiresAt && Date.now() >= Date.parse(attempt.expiresAt)) fail(409, "Time has expired. Submit to see your saved result.");
     const body = await bodyFor(c);
+    if (!Array.isArray(body.answers) || body.answers.length !== attempt.questions.length) fail(400, "Invalid answers");
+    const answers = body.answers.map((answer: unknown, index: number) => integer(answer, -1, attempt.questions[index].options.length - 1));
+    const updated = { ...attempt, answers, revision: attempt.revision + 1 };
+    if (!await store.updateAttempt(key, attempt.revision, updated)) fail(409, "Your attempt changed. Reopen the quiz before continuing.");
+    return c.json(publicAttempt(updated));
+  });
+  app.post(`${prefix}/quizzes/:id/attempts`, async c => {
+    const quiz = await accessibleQuiz(c, c.req.param("id"));
+    const body = await bodyFor(c);
+    if (body.attemptId !== undefined) {
+      const key = `${root}attempt:${profile(c).id}:${quiz.id}:${text(body.attemptId, 100)}`;
+      const attempt = await store.get(key);
+      if (!attempt) fail(404, "Attempt not found");
+      if (attempt.status !== "InProgress") return c.json(publicAttempt(attempt));
+      const expired = !!attempt.expiresAt && Date.now() >= Date.parse(attempt.expiresAt);
+      if (!expired && (!Array.isArray(body.answers) || body.answers.length !== attempt.questions.length)) fail(400, "Answer every question");
+      const answers = expired ? attempt.answers : body.answers.map((answer: unknown, index: number) => integer(answer, 0, attempt.questions[index].options.length - 1));
+      const updated = { ...scoreAttempt(attempt, attempt.questions, answers, expired), revision: attempt.revision + 1 };
+      if (!await store.updateAttempt(key, attempt.revision, updated)) fail(409, "Your attempt changed. Reopen the quiz to retrieve its result.");
+      return c.json(publicAttempt(updated), 201);
+    }
+    if (quiz.duration) fail(400, "Start this timed quiz before submitting");
     if (!Array.isArray(body.answers) || body.answers.length !== quiz.questions.length) fail(400, "Answer every question before submitting");
     const answers = body.answers.map((answer: unknown, index: number) => integer(answer, 0, quiz.questions[index].options.length - 1));
-    const correct = quiz.questions.reduce((count: number, item: RecordData, index: number) => count + Number(item.answer === answers[index]), 0);
-    const attempt = { id: crypto.randomUUID(), quizId: quiz.id, studentId: profile(c).id, answers, correct, total: answers.length, score: Math.round(correct / answers.length * 100), createdAt: new Date().toISOString() };
+    const attempt = scoreAttempt({ id: crypto.randomUUID(), quizId: quiz.id, courseId: quiz.courseId, studentId: profile(c).id, student: profile(c).name, passingScore: quiz.passingScore ?? 50 }, quiz.questions, answers, false);
     await put("attempt", `${profile(c).id}:${quiz.id}:${attempt.id}`, attempt);
     return c.json(attempt, 201);
   });
@@ -337,14 +440,36 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     const [assignments, quizzes] = await Promise.all([list("assignment"), list("quiz")]);
     return c.json({ assignments: assignments.filter(item => item.courseId === course.id), quizzes: quizzes.filter(item => item.courseId === course.id) });
   });
+  app.get(`${prefix}/instructor/assessments`, async c => {
+    const user = instructor(c);
+    const [allCourses, assignments, quizzes, submissions, attempts, enrollments, profiles] = await Promise.all([
+      list("course"), list("assignment"), list("quiz"), list("submission"), list("attempt"), list("enrollment"), list("profile"),
+    ]);
+    const courses = new Set(allCourses.filter(item => item.instructorId === user.id).map(item => item.id));
+    const ownedQuizzes = quizzes.filter(item => courses.has(item.courseId));
+    const quizIds = new Set(ownedQuizzes.map(item => item.id));
+    const names = new Map<string, string>();
+    for (const item of enrollments) if (courses.has(item.courseId) && item.studentId && item.student) names.set(item.studentId, item.student);
+    for (const item of profiles) if (item.id && item.name) names.set(item.id, item.name);
+    return c.json({
+      capability: "assessment-management-v1",
+      assignments: assignments.filter(item => courses.has(item.courseId)), quizzes: ownedQuizzes,
+      submissions: submissions.filter(item => courses.has(item.courseId)),
+      attempts: (await settleExpiredAttempts(attempts.filter(item => quizIds.has(item.quizId)))).map(item => ({
+        ...publicAttempt(item),
+        student: item.student ?? names.get(item.studentId),
+      })),
+    });
+  });
   app.put(`${prefix}/assignments/:id`, async c => {
     const item = await get("assignment", c.req.param("id"));
     if (!item) fail(404, "Assignment not found");
     await ownedCourse(c, item.courseId);
     const body = await bodyFor(c);
-    const dueDate = text(body.dueDate, 40);
-    if (!Number.isFinite(Date.parse(dueDate))) fail(400, "Enter a valid due date");
-    const updated = { ...item, title: text(body.title, 160), description: text(body.description, 8000), dueDate };
+    if (body.courseId !== undefined && body.courseId !== item.courseId) fail(400, "An existing assessment cannot be moved to another course");
+    const details = assignmentDetails(body, item);
+    if (details.maxMarks !== (item.maxMarks ?? 100) && (await list("submission")).some(sub => sub.assignmentId === item.id)) fail(409, "Maximum marks are locked after the first submission");
+    const updated = { ...item, ...details };
     await put("assignment", item.id, updated);
     return c.json(updated);
   });
@@ -353,7 +478,12 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     if (!item) fail(404, "Quiz not found");
     await ownedCourse(c, item.courseId);
     const body = await bodyFor(c);
-    const updated = { ...item, title: text(body.title, 160), questions: parseQuestions(body.questions) };
+    if (body.courseId !== undefined && body.courseId !== item.courseId) fail(400, "An existing assessment cannot be moved to another course");
+    const details = quizDetails(body, item);
+    const previous = quizDetails({}, item);
+    if ((await list("attempt")).some(attempt => attempt.quizId === item.id) &&
+      ["questions", "duration", "passingScore"].some(field => JSON.stringify(details[field as keyof typeof details]) !== JSON.stringify(previous[field as keyof typeof previous]))) fail(409, "Questions, marks, duration, and passing score are locked after the first attempt. Create a new quiz for different assessment criteria.");
+    const updated = { ...item, ...details };
     await put("quiz", item.id, updated);
     return c.json({ id: item.id });
   });
