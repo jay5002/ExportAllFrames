@@ -65,12 +65,12 @@ export default function Header({
   return (
     <header
       style={{
-        height: 64,
+        height: 56,
         background: t.headerBg,
         borderBottom: `1px solid ${t.headerBorder}`,
         display: 'flex',
         alignItems: 'center',
-        padding: '0 24px',
+        padding: '0 20px',
         gap: 12,
         flexShrink: 0,
         zIndex: 50,
@@ -78,9 +78,9 @@ export default function Header({
       }}
     >
       {/* Search */}
-      <div style={{ flex: 1, maxWidth: 400, position: 'relative' }}>
+      <div style={{ flex: 1, maxWidth: 340, position: 'relative' }}>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-          <span style={{ position: 'absolute', left: 12, pointerEvents: 'none', display: 'flex' }}>
+          <span style={{ position: 'absolute', left: 10, pointerEvents: 'none' }}>
             <SearchIcon color={t.sidebarMuted} />
           </span>
           <input
@@ -88,15 +88,14 @@ export default function Header({
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => setFocused(true)}
             onBlur={() => setTimeout(() => setFocused(false), 150)}
-            placeholder="Search courses…" aria-label="Search courses"
+            placeholder="Search courses, lessons..."
             style={{
               width: '100%',
               background: focused ? '#fff' : t.searchBg,
               border: `1px solid ${focused ? t.logoColor : t.searchBorder}`,
-              borderRadius: 8,
-              height: 40,
-              padding: '0 32px 0 34px',
-              fontSize: 14,
+              borderRadius: 20,
+              padding: '7px 12px 7px 30px',
+              fontSize: 12,
               color: t.sidebarText,
               outline: 'none',
               transition: 'border-color 0.15s, background 0.15s',
@@ -119,7 +118,7 @@ export default function Header({
           <div style={{
             position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
             background: '#fff', border: `1px solid ${t.cardBorder}`,
-            borderRadius: 12, boxShadow: '0 8px 24px rgba(15,23,42,0.10)',
+            borderRadius: 12, boxShadow: '0 8px 24px rgba(37,99,235,0.12)',
             zIndex: 200, overflow: 'hidden',
           }}>
             {suggestions.map((s) => (
@@ -127,7 +126,7 @@ export default function Header({
               key={s.id}
                 onMouseDown={() => { navigate(`${activeRole === 'instructor' ? '/instructor/courses' : '/courses'}?q=${encodeURIComponent(s.name)}`); setQuery(''); setFocused(false) }}
                 style={{
-                  padding: '10px 14px', fontSize: 14, color: t.sectionText,
+                  padding: '10px 14px', fontSize: 13, color: t.sectionText,
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
                   transition: 'background 0.1s',
                 }}
@@ -149,14 +148,13 @@ export default function Header({
         <button
           onClick={onNotificationClick}
           style={{
-            width: 40, height: 40, borderRadius: 8,
-            background: '#fff', border: `1px solid ${t.searchBorder}`,
+            width: 36, height: 36, borderRadius: '50%',
+            background: t.searchBg, border: `1px solid ${t.searchBorder}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', transition: 'background 0.15s',
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f5f9')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
-          aria-label="Notifications"
+          onMouseEnter={(e) => (e.currentTarget.style.background = '#e0eaff')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = t.searchBg)}
         >
           <BellIcon color={t.sidebarText} />
         </button>
@@ -189,19 +187,19 @@ export default function Header({
         >
           <div style={{
             width: 36, height: 36, borderRadius: '50%',
-            background: '#2563eb',
+            background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: '#fff', fontSize: 14, fontWeight: 700,
-            flexShrink: 0,
+            boxShadow: '0 2px 6px rgba(37,99,235,0.3)', flexShrink: 0,
           }}>
             {activeAccount.initial}
           </div>
-          <div className="sv-hide-sm" style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: t.sectionText, lineHeight: '20px' }}>{activeAccount.name}</div>
-            <div style={{ fontSize: 12, color: t.cardMuted, lineHeight: '16px' }}>{activeAccount.role}</div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: t.sectionText }}>{activeAccount.name}</div>
+            <div style={{ fontSize: 10, color: t.cardMuted }}>{activeAccount.role}</div>
           </div>
           {/* Chevron */}
-          <svg className="sv-hide-sm" width="12" height="12" viewBox="0 0 12 12" fill="none"
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
             style={{ transform: accountOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', marginLeft: 2 }}>
             <path d="M2 4l4 4 4-4" stroke={t.cardMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -212,12 +210,12 @@ export default function Header({
           <div style={{
             position: 'absolute', top: 'calc(100% + 8px)', right: 0,
             background: '#fff', border: `1px solid ${t.cardBorder}`,
-            borderRadius: 12, boxShadow: '0 8px 24px rgba(15,23,42,0.10)',
+            borderRadius: 14, boxShadow: '0 8px 28px rgba(37,99,235,0.14)',
             zIndex: 300, minWidth: 220, overflow: 'hidden',
           }}>
             {/* Header */}
             <div style={{ padding: '12px 16px', borderBottom: `1px solid ${t.cardBorder}`, background: '#fafcff' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: t.cardMuted, letterSpacing: '0.06em' }}>YOUR WORKSPACES</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.cardMuted, letterSpacing: '0.06em' }}>YOUR WORKSPACES</div>
             </div>
 
             {/* Account list */}
@@ -258,8 +256,8 @@ export default function Header({
                   {acc.initial}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: active ? 600 : 500, color: t.sectionText }}>{acc.name}</div>
-                  <div style={{ fontSize: 12, color: t.cardMuted }}>{acc.role}</div>
+                  <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: t.sectionText }}>{acc.name}</div>
+                  <div style={{ fontSize: 10, color: t.cardMuted }}>{acc.role}</div>
                 </div>
                 {active && (
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -285,8 +283,8 @@ export default function Header({
                   onKeyDown={(event) => { if (event.key === 'Enter') { setAccountOpen(false); onSignOut?.() } }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 16px', cursor: 'pointer', fontSize: 14,
-                    color: item.danger ? '#dc2626' : t.sectionText,
+                    padding: '10px 16px', cursor: 'pointer', fontSize: 13,
+                    color: item.danger ? '#ef4444' : t.sectionText,
                     fontWeight: item.danger ? 600 : 400,
                     transition: 'background 0.12s',
                   }}
