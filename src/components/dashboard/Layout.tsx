@@ -4,6 +4,7 @@ import Sidebar, { type PageId } from './Sidebar'
 import Header from './Header'
 import type { AccountRole } from './Header'
 import { useAuth } from '../auth/AuthProvider'
+import useStudentNotifications from '../../lib/useStudentNotifications'
 
 const routeToPage: Record<string, PageId> = {
   '/dashboard':     'dashboard',
@@ -43,21 +44,23 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const t = blueTheme
-  const activeRole: AccountRole = location.pathname.startsWith('/instructor') ? 'instructor' : 'student'
+  const activeRole: AccountRole = profile?.role === 'instructor' ? 'instructor' : 'student'
+  const { unread } = useStudentNotifications(activeRole === 'student')
 
-  const activePage: PageId = routeToPage[location.pathname] ?? 'dashboard'
+  const activePage: PageId = routeToPage[location.pathname] ?? (activeRole === 'instructor' ? 'instructor' : 'dashboard')
 
   const handleNavigate = (page: PageId) => {
-    navigate(pageToRoute[page])
-  }
-
-  const handleNotificationClick = () => {
-    navigate('/notifications')
+    const route = pageToRoute[page]
+    if (activeRole === 'instructor' && !route.startsWith('/instructor')) {
+      navigate('/instructor')
+      return
+    }
+    navigate(route)
   }
 
   const handleRoleChange = (role: AccountRole) => {
-    if (role === 'instructor' && profile?.role !== 'instructor') return
-    navigate(role === 'student' ? '/dashboard' : `/${role}`)
+    if (!profile || role !== profile.role) return
+    navigate(role === 'instructor' ? '/instructor' : '/dashboard')
   }
 
   const switchAccount = () => {
@@ -81,13 +84,12 @@ export default function Layout() {
         role={activeRole}
         onSwitchRole={switchAccount}
         userName={profile?.name}
+        notificationCount={unread}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
         <Header
           userName={profile?.name}
-          notificationCount={0}
-          onNotificationClick={handleNotificationClick}
           activeRole={activeRole}
           onRoleChange={handleRoleChange}
           canTeach={profile?.role === 'instructor'}

@@ -12,3 +12,4 @@ export type ManagedAssignment = Omit<Assignment, 'submission'>
 export type ManagedQuiz = Omit<Quiz, 'attempts' | 'bestScore' | 'questions'> & { courseId: string; status?: 'Draft' | 'Published'; questions: (QuizQuestion & { answer: number })[] }
 export type ManagedAttempt = Omit<Partial<Attempt>, 'status'> & { id: string; quizId: string; studentId: string; student?: string; startedAt?: string; createdAt?: string; expiresAt?: string | null; status?: 'InProgress' | 'Completed' | 'Expired' }
 export type AssessmentWorkspace = { capability: string; assignments: ManagedAssignment[]; quizzes: ManagedQuiz[]; submissions: Submission[]; attempts: ManagedAttempt[] }
+export type StudentNotification = { id: string; type: 'announcement' | 'assignment' | 'grade'; title: string; body: string; context: string; occurredAt: string; href: string; read: boolean }

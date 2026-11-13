@@ -124,7 +124,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null)
   const [selectedName, setSelectedName] = useState('')
   const [selectedId, setSelectedId] = useState('')
-  const [grade, setGrade] = useState('85')
+  const [grade, setGrade] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -166,10 +166,10 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
   }
   const pendingCount = submissions.filter((submission) => submission.status === 'Pending').length
   const metrics = [
-    { label: 'Course enrollments', value: String(students.length), change: 'Your enrolled learners', tone: '#2563eb', icon: 'people', target: 'students' as const },
+    { label: 'Course enrollments', value: String(students.length), change: 'Enrollment records across your courses', tone: '#2563eb', icon: 'people', target: 'students' as const },
     { label: 'Published courses', value: String(courses.filter((course) => course.status === 'Published').length), change: 'Currently published', tone: '#7c3aed', icon: 'course', target: 'courses' as const },
     { label: 'Submissions to grade', value: String(pendingCount), change: 'Awaiting feedback', tone: '#d97706', icon: 'course', target: 'grading' as const },
-    { label: 'Average completion', value: `${students.length ? Math.round(students.reduce((total, student) => total + student.progress, 0) / students.length) : 0}%`, change: 'Live learner progress', tone: '#059669', icon: 'chart', target: 'overview' as const },
+    { label: 'Average completion', value: `${students.length ? Math.round(students.reduce((total, student) => total + student.progress, 0) / students.length) : 0}%`, change: 'Average across all enrollments', tone: '#059669', icon: 'chart', target: 'overview' as const },
   ]
 
   const filteredCourses = useMemo(
@@ -227,7 +227,7 @@ export default function InstructorDashboard({ view = 'overview' }: InstructorDas
 
   const openGrade = (submission: Submission) => {
     setSelectedSubmission(submission)
-    setGrade(String(submission.score ?? 85))
+    setGrade(submission.score === undefined ? '' : String(submission.score))
     setModal('grade')
   }
 

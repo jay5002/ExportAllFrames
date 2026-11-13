@@ -66,3 +66,8 @@ export function ProtectedRoute({ instructor = false }: { instructor?: boolean })
   if (instructor && profile.role !== 'instructor') return <Navigate to="/dashboard" replace />
   return <Outlet />
 }
+
+export function StudentRoute() {
+  const { profile } = useAuth()
+  return profile?.role === 'instructor' ? <Navigate to="/instructor" replace /> : <Outlet />
+}

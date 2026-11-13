@@ -3,11 +3,13 @@ import HeroCard from './HeroCard'
 import { useAuth } from '../auth/AuthProvider'
 import useLearningData from '../../lib/useLearningData'
 import { StudentCharts } from './charts'
+import useStudentNotifications from '../../lib/useStudentNotifications'
 
 export default function DashboardHome() {
   const { profile } = useAuth()
   const { enrollments, enrolled, completed, assignments, quizzes, loading, error, reload } = useLearningData()
   const navigate = useNavigate()
+  const notifications = useStudentNotifications(true)
   const pending = assignments.filter(item => !item.submission)
   const metrics = [
     { label: 'Enrolled courses', value: enrolled.length, path: '/courses' },
@@ -20,6 +22,12 @@ export default function DashboardHome() {
     {error && <p role="alert" className="sv-alert sv-alert-error">{error} <button className="sv-link" onClick={() => void reload()}>Retry</button></p>}
     <HeroCard userName={profile?.name} pendingAssignments={pending.length} coursesInProgress={enrolled.length - completed.length} onContinue={() => navigate('/courses')} />
     <div className="sv-grid-stats">{metrics.map(metric => <Link key={metric.label} to={metric.path} className="sv-card sv-card-link p-5"><p className="sv-stat-label">{metric.label}</p><p className="sv-stat-value">{loading ? '—' : metric.value}</p></Link>)}</div>
+    <Link to="/notifications" className="sv-card sv-card-link flex min-w-0 flex-wrap items-center justify-between gap-4 p-5">
+      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="sv-section-title">Notifications</h2>{notifications.unread > 0 && <span className="sv-badge">{notifications.unread} unread</span>}</div>
+        <p className="sv-meta mt-1">{notifications.loading ? 'Checking for course updates…' : notifications.error ? 'Unable to load notifications. Open Notifications to retry.' : notifications.items[0] ? notifications.items[0].title : 'No new announcements, assignment updates, or grades.'}</p>
+      </div>
+      <span className="sv-link shrink-0">View notifications</span>
+    </Link>
     <StudentCharts courses={enrolled} enrollments={enrollments} assignments={assignments} loading={loading} error={error} />
     <div className="grid gap-6 lg:grid-cols-3">
       <section className="sv-card sv-card-pad min-w-0 lg:col-span-2"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="sv-section-title">Continue your journey</h2><Link to="/courses" className="sv-link">View all</Link></div>

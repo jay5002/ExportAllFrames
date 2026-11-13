@@ -187,6 +187,16 @@ the page explicitly says that unsent answers are not saved. Timed quizzes never
 fall back to a client-only timer. Local API/browser verification uses an isolated in-memory Store;
 it does not establish live Supabase persistence or successful account login.
 
+## Student notification feed (source implementation; not deployed automatically)
+
+`GET /notifications` derives a private student feed from existing announcements,
+published assignments, and the authenticated student's graded submissions.
+`PUT /notifications/:type/:id` stores per-student read state in the existing KV
+namespace. It reuses existing records and requires no table, SQL, policy, seed,
+or migration change. The server verifies enrollment and student ownership before
+returning or marking any item. Health advertises `student-notifications-v1` when
+the deployed function supports this contract.
+
 ## Sample courses
 
 - `POST /seed/sample-courses` (instructor only) writes three published courses (JavaScript Fundamentals, SQL and Database Essentials, Data Structures and Algorithms with JavaScript) with 3 modules, 6 lessons, one quiz and one assignment each. Content lives in `supabase/functions/server/sample-content.ts`.

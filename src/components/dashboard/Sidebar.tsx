@@ -50,6 +50,7 @@ interface SidebarProps {
   role?: 'student' | 'instructor'
   onSwitchRole?: () => void
   userName?: string
+  notificationCount?: number
 }
 
 const instructorItems: NavItem[] = [
@@ -61,11 +62,12 @@ const instructorItems: NavItem[] = [
   { id: 'instructor-grading', icon: AssignmentsIcon, label: 'Grading' },
 ]
 
-export default function Sidebar({ activePage, onNavigate, role = 'student', onSwitchRole, userName = 'Learner' }: SidebarProps) {
+export default function Sidebar({ activePage, onNavigate, role = 'student', onSwitchRole, userName = 'Learner', notificationCount = 0 }: SidebarProps) {
   const t = blueTheme
   const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 900)
   const [hoveredId, setHoveredId] = useState<PageId | null>(null)
-  const visibleItems = role === 'instructor' ? instructorItems : navItems
+  const visibleItems = role === 'instructor' ? instructorItems : navItems.map(item =>
+    item.id === 'notifications' ? { ...item, badge: notificationCount || undefined } : item)
   const panelName = role === 'instructor' ? 'Instructor Panel' : 'Student Panel'
   const sectionName = role === 'instructor' ? 'TEACHING' : 'LEARNING'
   const roleName = role === 'instructor' ? 'Instructor' : 'Student'

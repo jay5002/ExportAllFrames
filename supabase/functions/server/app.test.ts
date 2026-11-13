@@ -165,6 +165,34 @@ Deno.test("announcements are limited to the instructor's learners and read statu
   equal((await request("/messages", "student", "POST", { audience: "all", body: "Forbidden" })).status, 403);
 });
 
+Deno.test("student notifications combine announcements, assignments, and private grades with per-user read state", async () => {
+  const { request, course } = setup();
+  const courseId = await course();
+  for (const student of ["student", "other-student"]) await request(`/enrollments/${courseId}`, student, "PUT", { completed: 0 });
+  const announcement = await request("/messages", "teacher", "POST", { audience: courseId, body: "Project week starts Monday" });
+  const assignment = await request("/assignments", "teacher", "POST", {
+    courseId, title: "Private grade test", description: "Submit work", dueDate: "2030-01-01",
+  });
+  const submitted = await request(`/assignments/${assignment.data.id}/submit`, "student", "POST", { content: "Student work" });
+  await request(`/submissions/${submitted.data.id}`, "teacher", "PUT", { score: 88, feedback: "Private feedback" });
+
+  equal((await request("/notifications", "")).status, 401);
+  equal((await request("/notifications", "teacher")).status, 403);
+  const studentFeed = (await request("/notifications", "student")).data;
+  equal(studentFeed.map((item: any) => item.type).sort(), ["announcement", "assignment", "grade"]);
+  equal(studentFeed.find((item: any) => item.type === "grade").body.includes("Private feedback"), true);
+  equal(studentFeed.every((item: any) => item.read === false), true);
+
+  const otherFeed = (await request("/notifications", "other-student")).data;
+  equal(otherFeed.map((item: any) => item.type).sort(), ["announcement", "assignment"]);
+  equal(JSON.stringify(otherFeed).includes("Private feedback"), false);
+
+  equal((await request(`/notifications/grade/${submitted.data.id}`, "other-student", "PUT", {})).status, 404);
+  equal((await request(`/notifications/announcement/${announcement.data.id}`, "student", "PUT", {})).status, 200);
+  equal((await request("/notifications", "student")).data.find((item: any) => item.type === "announcement").read, true);
+  equal((await request("/notifications", "other-student")).data.find((item: any) => item.type === "announcement").read, false);
+});
+
 Deno.test("invalid JSON object shapes return validation errors rather than server failures", async () => {
   const { request, course } = setup();
   const id = await course();

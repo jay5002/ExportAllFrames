@@ -1,59 +1,29 @@
-import { useEffect, useState } from 'react'
-import { backend } from '../../lib/backend'
-import type { Submission } from '../../lib/types'
-
-type Message = { id: string; author: string; audience: string; body: string; createdAt: string; read: boolean }
+import { Link } from 'react-router-dom'
+import useStudentNotifications from '../../lib/useStudentNotifications'
 
 export default function WorkspaceRecords() {
-  const [submissions, setSubmissions] = useState<Submission[]>([])
-  const [messages, setMessages] = useState<Message[]>([])
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [unreadOnly, setUnreadOnly] = useState(false)
-  async function load() {
-    setLoading(true); setError('')
-    try {
-      const [workspace, inbox] = await Promise.all([
-        backend<{ submissions: Submission[] }>('/workspace?view=learning'),
-        backend<Message[]>('/messages'),
-      ])
-      setSubmissions(workspace.submissions); setMessages(inbox)
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to load notifications') }
-    finally { setLoading(false) }
-  }
-  useEffect(() => { void load() }, [])
-  async function read(id: string) {
-    if (saving) return
-    setSaving(true); setError('')
-    try {
-      const updated = await backend<Message>(`/messages/${id}`, 'PUT', {})
-      setMessages(current => current.map(item => item.id === updated.id ? updated : item))
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to mark announcement as read') }
-    finally { setSaving(false) }
-  }
-  const visible = messages.filter(item => !unreadOnly || !item.read)
-  return <section className="sv-card sv-card-pad" aria-busy={loading || saving}>
+  const { items, unread, loading, error, legacy, reload, markRead } = useStudentNotifications(true)
+  return <section className="sv-card sv-card-pad" aria-busy={loading}>
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="sv-section-title">Your announcements & grades</h2><p className="sv-meta mt-1">Updates from your instructors. Read status is saved to your account.</p></div>
-      <div className="flex gap-2"><button className="sv-btn-secondary" aria-pressed={unreadOnly} onClick={() => setUnreadOnly(current => !current)}>{unreadOnly ? 'Show all' : 'Unread only'}</button><button disabled={loading || saving} onClick={() => void load()} className="sv-btn-secondary">Refresh</button></div>
+      <div><div className="flex flex-wrap items-center gap-2"><h2 className="sv-section-title">Your notifications</h2>{unread > 0 && <span className="sv-badge">{unread} unread</span>}</div>
+        <p className="sv-meta mt-1">Instructor announcements, assignment updates, and published grades for your enrolled courses.</p></div>
+      <button disabled={loading} onClick={() => void reload()} className="sv-btn-secondary">Refresh</button>
     </div>
     {loading && <p role="status" className="sv-state mt-4">Loading notifications…</p>}
-    {error && <p role="alert" className="sv-alert sv-alert-error mt-4">{error}</p>}
-    {!loading && <>
-      <div className="mt-4">
-      {visible.length === 0 && <p className="sv-empty">{unreadOnly ? 'You’re all caught up.' : 'No announcements yet. Updates from your instructors will appear here.'}</p>}
-      {visible.map(message => <article key={message.id} className="border-t border-slate-100 py-4 first:border-t-0">
-        <div className="mb-2 flex flex-wrap items-center gap-2"><span className="sv-meta">{message.author} · {message.audience === 'all' ? 'All learners' : message.audience} · {new Date(message.createdAt).toLocaleString()}</span>{!message.read && <span className="sv-badge">New</span>}</div>
-        <p className="sv-desc max-w-[75ch] whitespace-pre-wrap text-slate-700">{message.body}</p>
-        <button disabled={saving || message.read} className="sv-link mt-2 -ml-2 disabled:text-slate-500" onClick={() => void read(message.id)}>{message.read ? 'Read' : 'Mark as read'}</button>
+    {error && <div role="alert" className="sv-alert sv-alert-error mt-4">{error}<button className="sv-link ml-2" onClick={() => void reload()}>Retry</button></div>}
+    {legacy && <p className="sv-meta mt-4">Announcements use saved read status. Assignment and grade read status requires the latest notification API deployment.</p>}
+    {!loading && !error && <div className="mt-4">
+      {items.length === 0 && <p className="sv-empty">No notifications yet. Updates from your instructors will appear here.</p>}
+      {items.map(item => <article key={`${item.type}:${item.id}`} className="border-t border-slate-100 py-4 first:border-t-0">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>{!item.read && <span className="sv-badge">New</span>}</div>
+            <p className="sv-meta mt-1">{item.context} · {new Date(item.occurredAt).toLocaleString()}</p></div>
+          <span className={`sv-badge ${item.type === 'grade' ? 'sv-badge-success' : item.type === 'assignment' ? 'sv-badge-warn' : ''}`}>{item.type === 'grade' ? 'Grade' : item.type === 'assignment' ? 'Assignment' : 'Announcement'}</span>
+        </div>
+        <p className="sv-desc mt-3 max-w-[75ch] whitespace-pre-wrap break-words">{item.body}</p>
+        <div className="mt-2 flex flex-wrap gap-2"><Link className="sv-link -ml-2" to={item.href}>{item.type === 'announcement' ? 'View details' : 'Open assignment'}</Link>
+          <button disabled={item.read} className="sv-link disabled:text-slate-500" onClick={() => void markRead(item)}>{item.read ? 'Read' : 'Mark as read'}</button></div>
       </article>)}
-      </div>
-      <h3 className="sv-section-title mt-6 border-t border-slate-200 pt-6">Your assignment results</h3>
-      {!submissions.some(item => item.status === 'Graded') && <p className="sv-desc mt-3">Your grades and instructor feedback will appear here.</p>}
-      {submissions.filter(item => item.status === 'Graded').map(item => <article key={item.id} className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-slate-900">{item.assignment}</strong><span className="sv-badge sv-badge-success">{item.score}/100</span></div><p className="sv-desc mt-2 whitespace-pre-wrap">{item.feedback || 'No written feedback provided yet.'}</p>
-      </article>)}
-    </>}
+    </div>}
   </section>
 }

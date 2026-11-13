@@ -175,6 +175,37 @@ export function createApp({ store, authenticate, register }: Dependencies) {
       item.instructorId === user.id || (item.courseId ? allowed.has(item.courseId) : teachers.has(item.instructorId)));
     return Promise.all(messages.map(async item => ({ ...item, read: !!await get("read", `${user.id}:${item.id}`) })));
   }
+  async function studentNotifications(c: Context) {
+    const user = profile(c);
+    if (user.role !== "student") fail(403, "A student account is required");
+    const [messages, enrollments, courses, assignments, submissions] = await Promise.all([
+      visibleMessages(c), store.getByPrefix(`${root}enrollment:${user.id}:`), list("course"), list("assignment"), list("submission"),
+    ]);
+    const enrolled = new Set(enrollments.map(item => item.courseId));
+    const publishedCourses = new Set(courses.filter(item => item.status === "Published" && enrolled.has(item.id)).map(item => item.id));
+    const visibleAssignments = assignments.filter(item => isPublished(item) && publishedCourses.has(item.courseId));
+    const ownSubmissions = submissions.filter(item => item.studentId === user.id);
+    const notificationRead = async (type: string, id: string) => !!await get("notificationRead", `${user.id}:${type}:${id}`);
+    const announcements = await Promise.all(messages.map(async item => ({
+      id: item.id, type: "announcement", title: `Announcement from ${item.author}`, body: item.body,
+      context: item.audience, occurredAt: item.createdAt, href: "/notifications",
+      read: item.read || await notificationRead("announcement", item.id),
+    })));
+    const assignmentUpdates = await Promise.all(visibleAssignments.map(async item => ({
+      id: item.id, type: "assignment", title: `Assignment available: ${item.title}`,
+      body: `${item.course} · Due ${item.dueDate}`, context: item.course,
+      occurredAt: item.publishedAt || item.createdAt || item.dueDate, href: "/assignments",
+      read: await notificationRead("assignment", item.id),
+    })));
+    const grades = await Promise.all(ownSubmissions.filter(item => item.status === "Graded").map(async item => ({
+      id: item.id, type: "grade", title: `${item.assignment} graded`,
+      body: `${item.score}/100${item.feedback ? ` · ${item.feedback}` : ""}`, context: item.course,
+      occurredAt: item.gradedAt || item.submitted, href: "/assignments",
+      read: await notificationRead("grade", item.id),
+    })));
+    return [...announcements, ...assignmentUpdates, ...grades]
+      .sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
+  }
 
   app.use("*", cors({
     origin: "*", allowHeaders: ["Content-Type", "Authorization", "X-Access-Token"],
@@ -188,7 +219,7 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     return c.json({ error: "The server could not complete this request. Please retry." }, 500);
   });
   app.notFound(c => c.json({ error: "API endpoint not found. Check the deployed SkillVerse server version." }, 404));
-  app.get(`${prefix}/health`, c => c.json({ status: "ok", version: "2.1.0", authentication: true, capabilities: ["assessment-management-v1"] }));
+  app.get(`${prefix}/health`, c => c.json({ status: "ok", version: "2.1.0", authentication: true, capabilities: ["assessment-management-v1", "student-notifications-v1"] }));
 
   app.post(`${prefix}/auth/register`, async c => {
     const body = await bodyFor(c);
@@ -328,7 +359,9 @@ export function createApp({ store, authenticate, register }: Dependencies) {
   app.post(`${prefix}/assignments`, async c => {
     const body = await bodyFor(c);
     const course = await ownedCourse(c, text(body.courseId, 100));
-    const item = { id: crypto.randomUUID(), courseId: course.id, course: course.name, instructorId: profile(c).id, ...assignmentDetails(body) };
+    const details = assignmentDetails(body);
+    const now = new Date().toISOString();
+    const item = { id: crypto.randomUUID(), courseId: course.id, course: course.name, instructorId: profile(c).id, ...details, createdAt: now, ...(details.status === "Published" ? { publishedAt: now } : {}) };
     await put("assignment", item.id, item);
     return c.json(item, 201);
   });
@@ -359,7 +392,7 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     const score = body.marks === undefined ? integer(body.score, 0, 100) : null;
     const marks = body.marks === undefined ? Number((score! / 100 * maxMarks).toFixed(2)) : body.marks;
     if (typeof marks !== "number" || !Number.isFinite(marks) || marks < 0 || marks > maxMarks) fail(400, `Marks must be between 0 and ${maxMarks}`);
-    const updated = { ...submission, marks, maxMarks, score: score ?? Math.round(marks / maxMarks * 100), feedback: text(body.feedback ?? "", 4000, false), status: "Graded" };
+    const updated = { ...submission, marks, maxMarks, score: score ?? Math.round(marks / maxMarks * 100), feedback: text(body.feedback ?? "", 4000, false), status: "Graded", gradedAt: new Date().toISOString() };
     await put("submission", submission.id, updated);
     return c.json(updated);
   });
@@ -469,7 +502,7 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     if (body.courseId !== undefined && body.courseId !== item.courseId) fail(400, "An existing assessment cannot be moved to another course");
     const details = assignmentDetails(body, item);
     if (details.maxMarks !== (item.maxMarks ?? 100) && (await list("submission")).some(sub => sub.assignmentId === item.id)) fail(409, "Maximum marks are locked after the first submission");
-    const updated = { ...item, ...details };
+    const updated = { ...item, ...details, ...(details.status === "Published" && !isPublished(item) ? { publishedAt: new Date().toISOString() } : {}) };
     await put("assignment", item.id, updated);
     return c.json(updated);
   });
@@ -529,6 +562,20 @@ export function createApp({ store, authenticate, register }: Dependencies) {
     if (!message) fail(404, "Announcement not found");
     await put("read", `${profile(c).id}:${message.id}`, { read: true });
     return c.json({ ...message, read: true });
+  });
+  app.get(`${prefix}/notifications`, async c => c.json(await studentNotifications(c)));
+  app.put(`${prefix}/notifications/:type/:id`, async c => {
+    const user = profile(c);
+    if (user.role !== "student") fail(403, "A student account is required");
+    const type = c.req.param("type");
+    const id = c.req.param("id");
+    if (!["announcement", "assignment", "grade"].includes(type)) fail(404, "Notification not found");
+    const notifications = await studentNotifications(c);
+    const item = notifications.find(notification => notification.type === type && notification.id === id);
+    if (!item) fail(404, "Notification not found");
+    await put("notificationRead", `${user.id}:${type}:${id}`, { read: true, readAt: new Date().toISOString() });
+    if (type === "announcement") await put("read", `${user.id}:${id}`, { read: true });
+    return c.json({ ...item, read: true });
   });
   return app;
 }
